@@ -1,8 +1,8 @@
-module Environment exposing (botId, botToken, channelId, discordApiUrl)
+module Environment exposing (botId, botToken, channelId, discordApiUrl, guildId)
 
 {-| -}
 
-import Types exposing (BotToken(..), ChannelId(..), UserId(..))
+import Types exposing (BotToken(..), ChannelId(..), GuildId(..), UserId(..))
 
 
 {-| Authentication code for your bot. Not to be confused with Client ID and Client Secret.
@@ -20,9 +20,9 @@ channelId =
     ChannelId ""
 
 
-discordApiUrl : String
-discordApiUrl =
-    "https://discordapp.com/api/"
+guildId : GuildId
+guildId =
+    GuildId ""
 
 
 botId : UserId

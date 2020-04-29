@@ -2,14 +2,10 @@ module Types exposing
     ( BackendModel
     , BackendMsg(..)
     , BotToken(..)
-    , ChannelId(..)
-    , DiscordMessage
     , FrontendModel
     , FrontendMsg(..)
-    , MessageId(..)
     , ToBackend(..)
     , ToFrontend(..)
-    , UserId(..)
     )
 
 import Browser exposing (UrlRequest)
@@ -29,29 +25,8 @@ type alias BackendModel =
     }
 
 
-type MessageId
-    = MessageId String
-
-
-type UserId
-    = UserId String
-
-
 type BotToken
     = BotToken String
-
-
-type ChannelId
-    = ChannelId String
-
-
-type alias DiscordMessage =
-    { id : MessageId
-    , content : String
-    , authorId : UserId
-    , authorName : String
-    , isBot : Bool
-    }
 
 
 type FrontendMsg
@@ -69,7 +44,7 @@ type BackendMsg
     | CreatedMessage (Result String ())
     | GotMessages (Maybe MessageId) (Result String (List DiscordMessage))
     | GotMessagesWithTime (Maybe MessageId) (Result String (List DiscordMessage)) Time.Posix
-    | CheckForNewMessages Time.Posix
+    | CheckForNewMessagesAndUsers Time.Posix
 
 
 type ToFrontend

@@ -19,7 +19,7 @@ app =
 
 subscriptions _ =
     Sub.batch
-        [ Time.every 4000 CheckForNewMessages
+        [ Time.every 4000 CheckForNewMessagesAndUsers
         ]
 
 
@@ -73,7 +73,7 @@ update msg model =
                 Err error ->
                     ( Helper.addError error { model | lastDiscordBadStatus = Just time }, Cmd.none )
 
-        CheckForNewMessages time ->
+        CheckForNewMessagesAndUsers time ->
             let
                 getMessages =
                     case model.lastMessageId of
