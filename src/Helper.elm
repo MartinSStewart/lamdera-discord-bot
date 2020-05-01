@@ -1,23 +1,14 @@
 module Helper exposing
     ( addError
-    , authorization
-    , createMessage
-    , getLatestMessage
-    , getMessagesAfter
-    , getMessagesDecoder
-    , httpGet
-    , httpPost
     , isValidMessage
-    , resolver
+    , taskAttemptWithTime
+    , taskMerge
     )
 
+import DiscordApi
 import Environment
-import Http
-import Json.Decode as JD
-import Json.Encode as JE
 import Task exposing (Task)
 import Time
-import Types exposing (BackendModel, BackendMsg(..), BotToken(..), ChannelId(..), DiscordMessage, GuildId(..), MessageId(..), UserId(..))
 
 
 addError : String -> { a | errors : List String } -> { a | errors : List String }
@@ -25,6 +16,28 @@ addError error model =
     { model | errors = error :: model.errors }
 
 
-isValidMessage : DiscordMessage -> Bool
+isValidMessage : DiscordApi.Message -> Bool
 isValidMessage message =
-    message.authorId /= Environment.botId && not message.isBot
+    message.author.id /= Environment.botId && message.author.bot /= DiscordApi.Included True
+
+
+taskMerge : Task a a -> Cmd a
+taskMerge task =
+    task
+        |> Task.attempt
+            (\result ->
+                case result of
+                    Ok ok ->
+                        ok
+
+                    Err err ->
+                        err
+            )
+
+
+taskAttemptWithTime : (Result e a -> Time.Posix -> msg) -> Task e a -> Cmd msg
+taskAttemptWithTime msgWithTime task =
+    task
+        |> Task.andThen (\ok -> Time.now |> Task.map (msgWithTime (Ok ok)))
+        |> Task.onError (\error -> Time.now |> Task.map (msgWithTime (Err error)))
+        |> taskMerge

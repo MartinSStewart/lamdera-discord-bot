@@ -1,7 +1,6 @@
 module Types exposing
     ( BackendModel
     , BackendMsg(..)
-    , BotToken(..)
     , FrontendModel
     , FrontendMsg(..)
     , ToBackend(..)
@@ -10,6 +9,8 @@ module Types exposing
 
 import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
+import DiscordApi exposing (Id, Message, MessageId, User, UserId)
+import Set exposing (Set)
 import Time exposing (Month)
 import Url exposing (Url)
 
@@ -21,12 +22,15 @@ type alias FrontendModel =
 type alias BackendModel =
     { errors : List String
     , lastDiscordBadStatus : Maybe Time.Posix
-    , lastMessageId : Maybe MessageId
+    , lastMessageId : Maybe (DiscordApi.Id MessageId)
+    , lastGetUsersId : Int
+    , users : Maybe (Set UserId)
+    , botUserId : Maybe (Id UserId)
     }
 
 
-type BotToken
-    = BotToken String
+type alias UserId =
+    String
 
 
 type FrontendMsg
@@ -42,9 +46,10 @@ type ToBackend
 type BackendMsg
     = NoOp
     | CreatedMessage (Result String ())
-    | GotMessages (Maybe MessageId) (Result String (List DiscordMessage))
-    | GotMessagesWithTime (Maybe MessageId) (Result String (List DiscordMessage)) Time.Posix
-    | CheckForNewMessagesAndUsers Time.Posix
+    | GotMessages (Maybe (DiscordApi.Id MessageId)) (Result String (List Message)) Time.Posix
+    | UpdateLoop Time.Posix
+    | GotUsers Int (Result String (List User)) Time.Posix
+    | GotBotUser (Result String User)
 
 
 type ToFrontend

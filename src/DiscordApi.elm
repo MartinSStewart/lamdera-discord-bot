@@ -1,6 +1,29 @@
-module DiscordApi exposing (listGuildMembers)
+module DiscordApi exposing
+    ( Attachment
+    , AttachmentId
+    , BotToken
+    , ChannelId
+    , Emoji
+    , EmojiId
+    , GuildId
+    , Id(..)
+    , Message
+    , MessageId
+    , OptionalData(..)
+    , Reaction
+    , RoleId
+    , User
+    , UserId
+    , WebhookId
+    , botToken
+    , createMessage
+    , createReaction
+    , getCurrentUser
+    , getLatestMessage
+    , getMessagesAfter
+    , getUsers
+    )
 
-import Environment
 import Http
 import Iso8601
 import Json.Decode as JD
@@ -8,55 +31,89 @@ import Json.Decode.Extra as JD
 import Json.Encode as JE
 import Task exposing (Task)
 import Time
-import Types exposing (BotToken(..))
+import Url.Builder exposing (QueryParameter)
 
 
-authorization : Http.Header
-authorization =
-    let
-        (BotToken botToken_) =
-            Environment.botToken
-    in
+type BotToken
+    = BotToken String
+
+
+botToken : String -> BotToken
+botToken botTokenText =
+    BotToken botTokenText
+
+
+authorization : BotToken -> Http.Header
+authorization (BotToken botToken_) =
     Http.header "Authorization" ("Bot " ++ botToken_)
 
 
-getUsersUrl : Snowflake GuildId -> String
-getUsersUrl (Snowflake guildId) =
-    discordApiUrl ++ "/guilds/" ++ guildId ++ "/members"
+getUsersUrl : Id GuildId -> String
+getUsersUrl (Id guildId) =
+    discordApiUrl ++ Url.Builder.absolute [ "guilds", guildId, "members" ] []
 
 
-getUsers : Task String (List Message)
-getUsers =
+getUsers : BotToken -> Id GuildId -> Task String (List User)
+getUsers botToken_ guildId =
     httpGet
-        getUsersDecoder
-        getUsersUrl
+        botToken_
+        (JD.list decodeUser)
+        (getUsersUrl guildId)
 
 
-messagesUrl : Snowflake ChannelId -> String
-messagesUrl (Snowflake channelId) =
-    discordApiUrl ++ "channels/" ++ channelId ++ "/messages"
+messagesUrl : Id ChannelId -> List QueryParameter -> String
+messagesUrl (Id channelId) query =
+    discordApiUrl
+        ++ Url.Builder.absolute [ "channels", channelId, "messages" ] query
 
 
-createMessage : Snowflake ChannelId -> String -> Task Http.Error ()
-createMessage channelId content =
+createMessage : BotToken -> Id ChannelId -> String -> Task String ()
+createMessage botToken_ channelId content =
     httpPost
+        botToken_
         (JD.succeed ())
-        (messagesUrl channelId)
+        (messagesUrl channelId [])
         (JE.object [ ( "content", JE.string content ) ])
 
 
-getLatestMessage : Snowflake ChannelId -> Task String (List Message)
-getLatestMessage =
+getLatestMessage : BotToken -> Id ChannelId -> Task String (List Message)
+getLatestMessage botToken_ channelId =
     httpGet
+        botToken_
         (JD.list decodeMessage)
-        (messagesUrl ++ "?limit=1")
+        (messagesUrl channelId [ Url.Builder.int "limit" 1 ])
 
 
-getMessagesAfter : Snowflake ChannelId -> MessageId -> Task String (List Message)
-getMessagesAfter channelId (MessageId messageId) =
+getMessagesAfter : BotToken -> Id ChannelId -> Id MessageId -> Task String (List Message)
+getMessagesAfter botToken_ channelId (Id messageId) =
     httpGet
+        botToken_
         (JD.list decodeMessage)
-        (messagesUrl channelId ++ "?limit=100&after=" ++ messageId)
+        (messagesUrl channelId [ Url.Builder.int "limit" 100, Url.Builder.string "after" messageId ])
+
+
+createReactionUrl : Id ChannelId -> Id MessageId -> String -> Id EmojiId -> String
+createReactionUrl (Id channelId) (Id messageId) emojiName (Id emojiId) =
+    discordApiUrl
+        ++ Url.Builder.absolute
+            [ "channels", channelId, "messages", messageId, "reactions", emojiName ++ ":" ++ emojiId, "@me" ]
+            []
+
+
+createReaction : BotToken -> Id ChannelId -> Id MessageId -> String -> Id EmojiId -> Task String ()
+createReaction botToken_ channelId messageId emojiName emojiId =
+    httpPut botToken_
+        (JD.succeed ())
+        (createReactionUrl channelId messageId emojiName emojiId)
+        (JE.object [])
+
+
+getCurrentUser : BotToken -> Task String User
+getCurrentUser botToken_ =
+    httpGet
+        botToken_
+        decodeUser
+        (discordApiUrl ++ Url.Builder.absolute [ "users", "@me" ] [])
 
 
 discordApiUrl : String
@@ -64,11 +121,11 @@ discordApiUrl =
     "https://discordapp.com/api/"
 
 
-httpPost : JD.Decoder a -> String -> JE.Value -> Task String a
-httpPost decoder url body =
+httpPost : BotToken -> JD.Decoder a -> String -> JE.Value -> Task String a
+httpPost botToken_ decoder url body =
     Http.task
         { method = "POST"
-        , headers = [ authorization ]
+        , headers = [ authorization botToken_ ]
         , url = url
         , resolver = Http.stringResolver (resolver decoder)
         , body = Http.jsonBody body
@@ -76,16 +133,23 @@ httpPost decoder url body =
         }
 
 
-listGuildMembers : GuildId -> Task Http.Error (List User)
-listGuildMembers guildId =
-    httpGet
+httpPut : BotToken -> JD.Decoder a -> String -> JE.Value -> Task String a
+httpPut botToken_ decoder url body =
+    Http.task
+        { method = "PUT"
+        , headers = [ authorization botToken_ ]
+        , url = url
+        , resolver = Http.stringResolver (resolver decoder)
+        , body = Http.jsonBody body
+        , timeout = Nothing
+        }
 
 
-httpGet : JD.Decoder a -> String -> Task String a
-httpGet decoder url =
+httpGet : BotToken -> JD.Decoder a -> String -> Task String a
+httpGet botToken_ decoder url =
     Http.task
         { method = "GET"
-        , headers = [ authorization ]
+        , headers = [ authorization botToken_ ]
         , url = url
         , resolver = Http.stringResolver (resolver decoder)
         , body = Http.emptyBody
@@ -117,14 +181,14 @@ resolver decoder response =
 
 
 type OptionalData a
-    = Present a
+    = Included a
     | Missing
 
 
 type alias GuildMember =
     { user : OptionalData User
     , nickname : Maybe String
-    , roles : List (Snowflake RoleId)
+    , roles : List (Id RoleId)
     , joinedAt : Time.Posix
     , premiumSince : OptionalData (Maybe Time.Posix)
     , deaf : Bool
@@ -135,14 +199,16 @@ type alias GuildMember =
 decodeOptionalData : String -> JD.Decoder a -> JD.Decoder (OptionalData a)
 decodeOptionalData field decoder =
     JD.oneOf
-        [ JD.field field decoder |> JD.map Present
+        [ JD.field field decoder |> JD.map Included
         , JD.field field (JD.fail ("Incorrect data for field: " ++ field))
         , JD.succeed Missing
         ]
 
 
-type Snowflake idType
-    = Snowflake String
+{-| In Discord's documentation these are called snowflakes. Id is much quicker to write though.
+-}
+type Id idType
+    = Id String
 
 
 type MessageId
@@ -169,21 +235,29 @@ type WebhookId
     = WebhookId Never
 
 
+type AttachmentId
+    = AttachmentId Never
+
+
+type EmojiId
+    = EmojiId Never
+
+
 type alias Message =
-    { id : Snowflake MessageId
-    , channelId : Snowflake ChannelId
-    , guildId : Snowflake GuildId
+    { id : Id MessageId
+    , channelId : Id ChannelId
+    , guildId : OptionalData (Id GuildId)
     , author : User
 
     -- member field is excluded
     , content : String
     , timestamp : Time.Posix
     , editedTimestamp : Maybe Time.Posix
-    , tts : Bool
+    , textToSpeech : Bool
     , mentionEveryone : Bool
 
     -- mentions field is excluded
-    , mentionRoles : List (Snowflake RoleId)
+    , mentionRoles : List (Id RoleId)
 
     -- mention_channels field is excluded
     , attachments : List Attachment
@@ -193,7 +267,7 @@ type alias Message =
 
     -- nonce field is excluded
     , pinned : Bool
-    , webhookId : Snowflake WebhookId
+    , webhookId : OptionalData (Id WebhookId)
     , type_ : Int
 
     -- activity field is excluded
@@ -203,13 +277,9 @@ type alias Message =
     }
 
 
-type AttachmentId
-    = AttachmentId Never
-
-
-decodeSnowflake : JD.Decoder (Snowflake idType)
+decodeSnowflake : JD.Decoder (Id idType)
 decodeSnowflake =
-    JD.map Snowflake JD.string
+    JD.map Id JD.string
 
 
 decodeMessage : JD.Decoder Message
@@ -228,13 +298,13 @@ decodeMessage =
         |> JD.andMap (JD.field "attachments" (JD.list decodeAttachment))
         |> JD.andMap (decodeOptionalData "reactions" (JD.list decodeReaction))
         |> JD.andMap (JD.field "pinned" JD.bool)
-        |> JD.andMap (JD.field "webhook_id" decodeSnowflake)
+        |> JD.andMap (decodeOptionalData "webhook_id" decodeSnowflake)
         |> JD.andMap (JD.field "type" JD.int)
         |> JD.andMap (decodeOptionalData "flags" JD.int)
 
 
 type alias User =
-    { id : Snowflake UserId
+    { id : Id UserId
     , username : String
     , discriminator : Int
     , avatar : Maybe String
@@ -259,7 +329,7 @@ decodeUser =
             (JD.field "discriminator" JD.string
                 |> JD.andThen
                     (\text ->
-                        case String.toFloat text of
+                        case String.toInt text of
                             Just value ->
                                 JD.succeed value
 
@@ -280,7 +350,7 @@ decodeUser =
 
 
 type alias Attachment =
-    { id : Snowflake AttachmentId
+    { id : Id AttachmentId
     , filename : String
     , size : Int
     , url : String
@@ -296,10 +366,10 @@ decodeAttachment =
         |> JD.andMap (JD.field "id" decodeSnowflake)
         |> JD.andMap (JD.field "filename" JD.string)
         |> JD.andMap (JD.field "size" JD.int)
-        |> JD.andMap (decodeOptionalData "url" JD.string)
-        |> JD.andMap (decodeOptionalData "proxyUrl" JD.string)
-        |> JD.andMap (decodeOptionalData "height" (JD.nullable JD.int))
-        |> JD.andMap (decodeOptionalData "width" (JD.nullable JD.int))
+        |> JD.andMap (JD.field "url" JD.string)
+        |> JD.andMap (JD.field "proxyUrl" JD.string)
+        |> JD.andMap (JD.field "height" (JD.nullable JD.int))
+        |> JD.andMap (JD.field "width" (JD.nullable JD.int))
 
 
 type alias Reaction =
@@ -309,14 +379,10 @@ type alias Reaction =
     }
 
 
-type EmojiId
-    = EmojiId Never
-
-
 type alias Emoji =
-    { id : Snowflake EmojiId
+    { id : Id EmojiId
     , name : Maybe String
-    , roles : List (Snowflake RoleId)
+    , roles : List (Id RoleId)
     , user : OptionalData User
     , requireColors : OptionalData Bool
     , managed : OptionalData Bool
@@ -327,11 +393,20 @@ type alias Emoji =
 
 decodeReaction : JD.Decoder Reaction
 decodeReaction =
-    JD.succeed Attachment
+    JD.succeed Reaction
+        |> JD.andMap (JD.field "count" JD.int)
+        |> JD.andMap (JD.field "me" JD.bool)
+        |> JD.andMap (JD.field "emoji" decodeEmoji)
+
+
+decodeEmoji : JD.Decoder Emoji
+decodeEmoji =
+    JD.succeed Emoji
         |> JD.andMap (JD.field "id" decodeSnowflake)
-        |> JD.andMap (JD.field "filename" JD.string)
-        |> JD.andMap (JD.field "size" JD.int)
-        |> JD.andMap (decodeOptionalData "url" JD.string)
-        |> JD.andMap (decodeOptionalData "proxyUrl" JD.string)
-        |> JD.andMap (decodeOptionalData "height" (JD.nullable JD.int))
-        |> JD.andMap (decodeOptionalData "width" (JD.nullable JD.int))
+        |> JD.andMap (JD.field "name" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "roles" (JD.list decodeSnowflake))
+        |> JD.andMap (decodeOptionalData "user" decodeUser)
+        |> JD.andMap (decodeOptionalData "requireColors" JD.bool)
+        |> JD.andMap (decodeOptionalData "managed" JD.bool)
+        |> JD.andMap (decodeOptionalData "animated" JD.bool)
+        |> JD.andMap (decodeOptionalData "available" JD.bool)
