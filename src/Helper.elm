@@ -18,7 +18,7 @@ addError error model =
 
 isValidMessage : DiscordApi.Message -> Bool
 isValidMessage message =
-    message.author.id /= Environment.botId && message.author.bot /= DiscordApi.Included True
+    message.author.bot /= DiscordApi.Included True
 
 
 taskMerge : Task a a -> Cmd a

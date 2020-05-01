@@ -1,4 +1,4 @@
-module Environment exposing (botId, botToken, channelId, guildId)
+module Environment exposing (botToken, channelId)
 
 {-| -}
 
@@ -18,13 +18,3 @@ Currently the bot is limited to only checking for messages in a single channel.
 channelId : DiscordApi.Id ChannelId
 channelId =
     DiscordApi.Id ""
-
-
-guildId : DiscordApi.Id GuildId
-guildId =
-    DiscordApi.Id ""
-
-
-botId : Id UserId
-botId =
-    Id ""

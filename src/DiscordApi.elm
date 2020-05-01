@@ -2,14 +2,19 @@ module DiscordApi exposing
     ( Attachment
     , AttachmentId
     , BotToken
+    , Channel
     , ChannelId
     , Emoji
     , EmojiId
+    , Guild
     , GuildId
+    , GuildMember
     , Id(..)
     , Message
     , MessageId
     , OptionalData(..)
+    , PartialGuild
+    , Permissions
     , Reaction
     , RoleId
     , User
@@ -18,19 +23,33 @@ module DiscordApi exposing
     , botToken
     , createMessage
     , createReaction
+    , getChannel
     , getCurrentUser
+    , getCurrentUserGuilds
     , getLatestMessage
     , getMessagesAfter
     , getUsers
     )
 
+{-| The beginnings of an Elm package...
+
+Useful Discord links:
+
+  - API documentation: <https://discordapp.com/developers/docs/intro>
+  - Create bot invites: <https://discordapi.com/permissions.html>
+
+-}
+
+import Binary
+import Duration exposing (Seconds)
 import Http
 import Iso8601
 import Json.Decode as JD
 import Json.Decode.Extra as JD
 import Json.Encode as JE
+import Quantity exposing (Quantity(..), Rate)
 import Task exposing (Task)
-import Time
+import Time exposing (Posix(..))
 import Url.Builder exposing (QueryParameter)
 
 
@@ -50,21 +69,20 @@ authorization (BotToken botToken_) =
 
 getUsersUrl : Id GuildId -> String
 getUsersUrl (Id guildId) =
-    discordApiUrl ++ Url.Builder.absolute [ "guilds", guildId, "members" ] []
+    Url.Builder.crossOrigin discordApiUrl [ "guilds", guildId, "members" ] []
 
 
-getUsers : BotToken -> Id GuildId -> Task String (List User)
+getUsers : BotToken -> Id GuildId -> Task String (List GuildMember)
 getUsers botToken_ guildId =
     httpGet
         botToken_
-        (JD.list decodeUser)
+        (JD.list decodeGuildMember)
         (getUsersUrl guildId)
 
 
 messagesUrl : Id ChannelId -> List QueryParameter -> String
 messagesUrl (Id channelId) query =
-    discordApiUrl
-        ++ Url.Builder.absolute [ "channels", channelId, "messages" ] query
+    Url.Builder.crossOrigin discordApiUrl [ "channels", channelId, "messages" ] query
 
 
 createMessage : BotToken -> Id ChannelId -> String -> Task String ()
@@ -92,19 +110,19 @@ getMessagesAfter botToken_ channelId (Id messageId) =
         (messagesUrl channelId [ Url.Builder.int "limit" 100, Url.Builder.string "after" messageId ])
 
 
-createReactionUrl : Id ChannelId -> Id MessageId -> String -> Id EmojiId -> String
-createReactionUrl (Id channelId) (Id messageId) emojiName (Id emojiId) =
-    discordApiUrl
-        ++ Url.Builder.absolute
-            [ "channels", channelId, "messages", messageId, "reactions", emojiName ++ ":" ++ emojiId, "@me" ]
-            []
+createReactionUrl : Id ChannelId -> Id MessageId -> String -> String
+createReactionUrl (Id channelId) (Id messageId) emoji =
+    Url.Builder.crossOrigin
+        discordApiUrl
+        [ "channels", channelId, "messages", messageId, "reactions", emoji, "@me" ]
+        []
 
 
-createReaction : BotToken -> Id ChannelId -> Id MessageId -> String -> Id EmojiId -> Task String ()
-createReaction botToken_ channelId messageId emojiName emojiId =
+createReaction : BotToken -> Id ChannelId -> Id MessageId -> String -> Task String ()
+createReaction botToken_ channelId messageId emoji =
     httpPut botToken_
         (JD.succeed ())
-        (createReactionUrl channelId messageId emojiName emojiId)
+        (createReactionUrl channelId messageId emoji)
         (JE.object [])
 
 
@@ -113,7 +131,20 @@ getCurrentUser botToken_ =
     httpGet
         botToken_
         decodeUser
-        (discordApiUrl ++ Url.Builder.absolute [ "users", "@me" ] [])
+        (Url.Builder.crossOrigin discordApiUrl [ "users", "@me" ] [])
+
+
+getCurrentUserGuilds : BotToken -> Task String (List PartialGuild)
+getCurrentUserGuilds botToken_ =
+    httpGet
+        botToken_
+        (JD.list decodePartialGuild)
+        (Url.Builder.crossOrigin discordApiUrl [ "users", "@me", "guilds" ] [])
+
+
+getChannel : BotToken -> Id ChannelId -> Task String Channel
+getChannel botToken_ (Id channelId) =
+    httpGet botToken_ decodeChannel (Url.Builder.crossOrigin discordApiUrl [ "channels", channelId ] [])
 
 
 discordApiUrl : String
@@ -172,7 +203,7 @@ resolver decoder response =
             "Bad status " ++ String.fromInt metadata.statusCode ++ "      " ++ body |> Err
 
         Http.GoodStatus_ _ body ->
-            case JD.decodeString decoder body of
+            case JD.decodeString decoder (Debug.log "" body) of
                 Ok data ->
                     Ok data
 
@@ -194,6 +225,18 @@ type alias GuildMember =
     , deaf : Bool
     , mute : Bool
     }
+
+
+decodeGuildMember : JD.Decoder GuildMember
+decodeGuildMember =
+    JD.succeed GuildMember
+        |> JD.andMap (decodeOptionalData "user" decodeUser)
+        |> JD.andMap (JD.field "nick" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "roles" (JD.list decodeSnowflake))
+        |> JD.andMap (JD.field "joined_at" Iso8601.decoder)
+        |> JD.andMap (decodeOptionalData "premium_since" (JD.nullable Iso8601.decoder))
+        |> JD.andMap (JD.field "deaf" JD.bool)
+        |> JD.andMap (JD.field "mute" JD.bool)
 
 
 decodeOptionalData : String -> JD.Decoder a -> JD.Decoder (OptionalData a)
@@ -241,6 +284,10 @@ type AttachmentId
 
 type EmojiId
     = EmojiId Never
+
+
+type ApplicationId
+    = ApplicationId Never
 
 
 type alias Message =
@@ -410,3 +457,294 @@ decodeEmoji =
         |> JD.andMap (decodeOptionalData "managed" JD.bool)
         |> JD.andMap (decodeOptionalData "animated" JD.bool)
         |> JD.andMap (decodeOptionalData "available" JD.bool)
+
+
+type alias PartialGuild =
+    { id : Id GuildId
+    , name : String
+    , icon : Maybe String
+    , owner : Bool
+    , permissions : Permissions
+    }
+
+
+decodePartialGuild : JD.Decoder PartialGuild
+decodePartialGuild =
+    JD.succeed PartialGuild
+        |> JD.andMap (JD.field "id" decodeSnowflake)
+        |> JD.andMap (JD.field "name" JD.string)
+        |> JD.andMap (JD.field "icon" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "owner" JD.bool)
+        |> JD.andMap (JD.field "permissions" decodePermissions)
+
+
+type alias Guild =
+    { id : Id GuildId
+    , name : String
+    , icon : Maybe String
+    , splash : Maybe String
+    , discoverySplash : Maybe String
+    , owner : OptionalData Bool
+    , ownerId : Id UserId
+    , permissions : OptionalData Permissions
+    , region : String
+    , afkChannelId : Maybe (Id ChannelId)
+    , afkTimeout : Quantity Int Seconds
+    , embedEnabled : OptionalData Bool
+    , embedChannelId : OptionalData (Maybe (Id ChannelId))
+    , verificationLevel : Int
+    , defaultMessageNotifications : Int
+    , explicitContentFilter : Int
+
+    -- roles field excluded
+    , emojis : List Emoji
+    , features : List String
+    , mfaLevel : Int
+    , applicationId : Maybe (Id ApplicationId)
+    , widgetEnabled : OptionalData Bool
+    , widgetChannelId : OptionalData (Maybe (Id ChannelId))
+    , systemChannelId : Maybe (Id ChannelId)
+    , systemChannelFlags : Int
+    , rulesChannelId : Maybe (Id ChannelId)
+    , joinedAt : OptionalData Time.Posix
+    , large : OptionalData Bool
+    , unavailable : OptionalData Bool
+    , memberCount : OptionalData Int
+
+    -- voiceStates field excluded
+    , members : OptionalData (List GuildMember)
+    , channels : OptionalData (List Channel)
+
+    -- presences field excluded
+    , maxPresences : OptionalData (Maybe Int)
+    , maxMembers : OptionalData Int
+    , vanityUrlCode : Maybe String
+    , description : Maybe String
+    , banner : Maybe String
+    , premiumTier : Int
+    , premiumSubscriptionCount : OptionalData Int
+    , preferredLocale : String
+    , publicUpdatesChannelId : Maybe (Id ChannelId)
+    , approximateMemberCount : OptionalData Int
+    , approximatePresenceCount : OptionalData Int
+    }
+
+
+decodeGuild : JD.Decoder Guild
+decodeGuild =
+    JD.succeed Guild
+        |> JD.andMap (JD.field "id" decodeSnowflake)
+        |> JD.andMap (JD.field "name" JD.string)
+        |> JD.andMap (JD.field "icon" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "splash" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "discovery_splash" (JD.nullable JD.string))
+        |> JD.andMap (decodeOptionalData "owner" JD.bool)
+        |> JD.andMap (JD.field "owner_id" decodeSnowflake)
+        |> JD.andMap (decodeOptionalData "permissions" decodePermissions)
+        |> JD.andMap (JD.field "region" JD.string)
+        |> JD.andMap (JD.field "afk_channel_id" (JD.nullable decodeSnowflake))
+        |> JD.andMap (JD.field "afk_timeout" (JD.map Quantity JD.int))
+        |> JD.andMap (decodeOptionalData "embed_enabled" JD.bool)
+        |> JD.andMap (decodeOptionalData "embed_channel_id" (JD.nullable decodeSnowflake))
+        |> JD.andMap (JD.field "verification_level" JD.int)
+        |> JD.andMap (JD.field "default_message_notifications" JD.int)
+        |> JD.andMap (JD.field "explicit_content_filter" JD.int)
+        |> JD.andMap (JD.field "emojis" (JD.list decodeEmoji))
+        |> JD.andMap (JD.field "features" (JD.list JD.string))
+        |> JD.andMap (JD.field "mfa_level" JD.int)
+        |> JD.andMap (JD.field "application_id" (JD.nullable decodeSnowflake))
+        |> JD.andMap (decodeOptionalData "widget_enabled" JD.bool)
+        |> JD.andMap (decodeOptionalData "widget_channel_id" (JD.nullable decodeSnowflake))
+        |> JD.andMap (JD.field "system_channel_id" (JD.nullable decodeSnowflake))
+        |> JD.andMap (JD.field "system_channel_flags" JD.int)
+        |> JD.andMap (JD.field "rules_channel_id" (JD.nullable decodeSnowflake))
+        |> JD.andMap (decodeOptionalData "joined_at" Iso8601.decoder)
+        |> JD.andMap (decodeOptionalData "large" JD.bool)
+        |> JD.andMap (decodeOptionalData "unavailable" JD.bool)
+        |> JD.andMap (decodeOptionalData "member_count" JD.int)
+        |> JD.andMap (decodeOptionalData "members" (JD.list decodeGuildMember))
+        |> JD.andMap (decodeOptionalData "channels" (JD.list decodeChannel))
+        |> JD.andMap (decodeOptionalData "max_presences" (JD.nullable JD.int))
+        |> JD.andMap (decodeOptionalData "max_members" JD.int)
+        |> JD.andMap (JD.field "vanity_url_code" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "description" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "banner" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "premium_tier" JD.int)
+        |> JD.andMap (decodeOptionalData "premium_subscription_count" JD.int)
+        |> JD.andMap (JD.field "preferred_locale" JD.string)
+        |> JD.andMap (JD.field "public_updates_channel_id" (JD.nullable decodeSnowflake))
+        |> JD.andMap (decodeOptionalData "approximate_member_count" JD.int)
+        |> JD.andMap (decodeOptionalData "approximate_presence_count" JD.int)
+
+
+type alias Permissions =
+    { createInstantInvite : Bool
+    , kickMembers : Bool
+    , banMembers : Bool
+    , administrator : Bool
+    , manageChannels : Bool
+    , manageGuild : Bool
+    , addReaction : Bool
+    , viewAuditLog : Bool
+    , prioritySpeaker : Bool
+    , stream : Bool
+    , viewChannel : Bool
+    , sendMessages : Bool
+    , sentTextToSpeechMessages : Bool
+    , manageMessages : Bool
+    , embedLinks : Bool
+    , attachFiles : Bool
+    , readMessageHistory : Bool
+    , mentionEveryone : Bool
+    , useExternalEmojis : Bool
+    , viewGuildInsights : Bool
+    , connect : Bool
+    , speak : Bool
+    , muteMembers : Bool
+    , deafenMembers : Bool
+    , moveMembers : Bool
+    , useVoiceActivityDetection : Bool
+    , changeNickname : Bool
+    , manageNicknames : Bool
+    , manageRoles : Bool
+    , manageWebhooks : Bool
+    , manageEmojis : Bool
+    }
+
+
+decodePermissions : JD.Decoder Permissions
+decodePermissions =
+    JD.map
+        (\value ->
+            let
+                permissions =
+                    value |> List.singleton |> Binary.fromIntegers |> Binary.toBooleans
+
+                getPermission position =
+                    List.drop position permissions |> List.head |> Maybe.withDefault False
+            in
+            Permissions
+                (getPermission 0)
+                (getPermission 1)
+                (getPermission 2)
+                (getPermission 3)
+                (getPermission 4)
+                (getPermission 5)
+                (getPermission 6)
+                (getPermission 7)
+                (getPermission 8)
+                (getPermission 9)
+                (getPermission 10)
+                (getPermission 11)
+                (getPermission 12)
+                (getPermission 13)
+                (getPermission 14)
+                (getPermission 15)
+                (getPermission 16)
+                (getPermission 17)
+                (getPermission 18)
+                (getPermission 19)
+                (getPermission 20)
+                (getPermission 21)
+                (getPermission 22)
+                (getPermission 23)
+                (getPermission 24)
+                (getPermission 25)
+                (getPermission 26)
+                (getPermission 27)
+                (getPermission 28)
+                (getPermission 29)
+                (getPermission 30)
+        )
+        JD.int
+
+
+type Bits
+    = Bits Never
+
+
+type alias Channel =
+    { id : Id ChannelId
+    , type_ : ChannelTypes
+    , guildId : OptionalData (Id GuildId)
+    , position : OptionalData Int
+
+    -- premission overwrites field excluded
+    , name : OptionalData String
+    , topic : OptionalData (Maybe String)
+    , nsfw : OptionalData Bool
+    , lastMessageId : OptionalData (Maybe (Id MessageId))
+    , bitrate : OptionalData (Quantity Int (Rate Bits Seconds))
+    , userLimit : OptionalData Int
+    , rateLimitPerUser : OptionalData (Quantity Int Seconds)
+    , recipients : OptionalData (List User)
+    , icon : OptionalData (Maybe String)
+    , ownerId : OptionalData (Id UserId)
+    , applicationId : OptionalData (Id ApplicationId)
+    , parentId : OptionalData (Maybe (Id ChannelId))
+    , lastPinTimestamp : OptionalData Time.Posix
+    }
+
+
+decodeChannel : JD.Decoder Channel
+decodeChannel =
+    JD.succeed Channel
+        |> JD.andMap (JD.field "id" decodeSnowflake)
+        |> JD.andMap (JD.field "type" decodeChannelTypes)
+        |> JD.andMap (decodeOptionalData "guild_id" decodeSnowflake)
+        |> JD.andMap (decodeOptionalData "position" JD.int)
+        |> JD.andMap (decodeOptionalData "name" JD.string)
+        |> JD.andMap (decodeOptionalData "topic" (JD.nullable JD.string))
+        |> JD.andMap (decodeOptionalData "nsfw" JD.bool)
+        |> JD.andMap (decodeOptionalData "last_message_id" (JD.nullable decodeSnowflake))
+        |> JD.andMap (decodeOptionalData "bitrate" (JD.map Quantity JD.int))
+        |> JD.andMap (decodeOptionalData "user_limit" JD.int)
+        |> JD.andMap (decodeOptionalData "rate_limit_per_user" (JD.map Quantity JD.int))
+        |> JD.andMap (decodeOptionalData "recipients" (JD.list decodeUser))
+        |> JD.andMap (decodeOptionalData "icon" (JD.nullable JD.string))
+        |> JD.andMap (decodeOptionalData "owner_id" decodeSnowflake)
+        |> JD.andMap (decodeOptionalData "application_id" decodeSnowflake)
+        |> JD.andMap (decodeOptionalData "parent_id" (JD.nullable decodeSnowflake))
+        |> JD.andMap (decodeOptionalData "last_pin_timestamp" Iso8601.decoder)
+
+
+type ChannelTypes
+    = GuildText
+    | DirectMessage
+    | GuildVoice
+    | GroupDirectMessage
+    | GuildCategory
+    | GuildNews
+    | GuildStore
+
+
+decodeChannelTypes : JD.Decoder ChannelTypes
+decodeChannelTypes =
+    JD.andThen
+        (\value ->
+            case value of
+                0 ->
+                    JD.succeed GuildText
+
+                1 ->
+                    JD.succeed DirectMessage
+
+                2 ->
+                    JD.succeed GuildVoice
+
+                3 ->
+                    JD.succeed GroupDirectMessage
+
+                4 ->
+                    JD.succeed GuildCategory
+
+                5 ->
+                    JD.succeed GuildNews
+
+                6 ->
+                    JD.succeed GuildStore
+
+                _ ->
+                    JD.fail "Invalid channel type."
+        )
+        JD.int

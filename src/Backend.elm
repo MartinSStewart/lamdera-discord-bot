@@ -1,11 +1,9 @@
 module Backend exposing (app, init, subscriptions, update, updateFromFrontend)
 
-import DiscordApi
+import DiscordApi exposing (OptionalData(..))
 import Environment
 import Helper
 import Lamdera exposing (ClientId, SessionId)
-import List.Extra as List
-import Set
 import Task exposing (Task)
 import Time exposing (Month(..))
 import Time.Extra as Time
@@ -43,7 +41,6 @@ init =
     ( { errors = []
       , lastDiscordBadStatus = Nothing
       , lastMessageId = Nothing
-      , lastGetUsersId = 0
       , users = Nothing
       , botUserId = Nothing
       }
@@ -69,10 +66,42 @@ update msg model =
                 Err error ->
                     ( Helper.addError error model, Cmd.none )
 
+        CreatedReaction result ->
+            case result of
+                Ok _ ->
+                    ( model, Cmd.none )
+
+                Err error ->
+                    ( Helper.addError error model, Cmd.none )
+
         GotMessages lastMessageId result time ->
             case result of
                 Ok messages ->
-                    ( { model | lastMessageId = lastMessageId }, Cmd.none )
+                    let
+                        ( newUsers, cmd ) =
+                            case model.users of
+                                Just users ->
+                                    messages
+                                        |> List.foldl
+                                            (\message ( users_, cmds ) ->
+                                                if List.any ((==) message.author.id) users_ then
+                                                    ( users_, cmds )
+
+                                                else
+                                                    ( message.author.id :: users_
+                                                    , Cmd.batch
+                                                        [ cmds
+                                                        , Task.attempt CreatedReaction (waveReaction message.id)
+                                                        ]
+                                                    )
+                                            )
+                                            ( users, Cmd.none )
+                                        |> Tuple.mapFirst Just
+
+                                Nothing ->
+                                    ( Nothing, Cmd.none )
+                    in
+                    ( { model | lastMessageId = lastMessageId, users = newUsers }, cmd )
 
                 Err error ->
                     ( Helper.addError error { model | lastDiscordBadStatus = Just time }, Cmd.none )
@@ -95,8 +124,22 @@ update msg model =
                                 |> Helper.taskAttemptWithTime (GotMessages Nothing)
 
                 getUsers =
-                    DiscordApi.getUsers Environment.botToken Environment.guildId
-                        |> Helper.taskAttemptWithTime (GotUsers (model.lastGetUsersId + 1))
+                    case model.users of
+                        Just _ ->
+                            Cmd.none
+
+                        Nothing ->
+                            DiscordApi.getChannel Environment.botToken Environment.channelId
+                                |> Task.andThen
+                                    (\channel ->
+                                        case channel.guildId of
+                                            Included guildId ->
+                                                DiscordApi.getUsers Environment.botToken guildId
+
+                                            Missing ->
+                                                Task.fail "Failed to get guild."
+                                    )
+                                |> Helper.taskAttemptWithTime GotUsers
 
                 getBotUser =
                     if model.botUserId == Nothing then
@@ -122,46 +165,28 @@ update msg model =
                 ]
             )
 
-        GotUsers getUsersId result time ->
+        GotUsers result time ->
             case result of
                 Ok users ->
                     let
                         newUsers =
-                            users |> List.map (.id >> (\(DiscordApi.Id id) -> id)) |> Set.fromList
+                            users
+                                |> List.filterMap
+                                    (\guildMember ->
+                                        case guildMember.user of
+                                            Included user ->
+                                                Just user.id
+
+                                            Missing ->
+                                                Nothing
+                                    )
                     in
-                    if getUsersId > model.lastGetUsersId then
-                        case model.users of
-                            Just oldUsers ->
-                                --let
-                                --    greetings =
-                                --        Set.diff newUsers oldUsers
-                                --            |> Set.toList
-                                --            |> List.filterMap
-                                --                (\userId ->
-                                --                    case List.find (.id >> (==) (DiscordApi.Id userId)) users of
-                                --                        Just user ->
-                                --                            DiscordApi.createReaction
-                                --                                Environment.botToken
-                                --                                Environment.channelId
-                                --                                "wave"
-                                --                                (DiscordApi.Id "df7ba0f4020ca70048a0226d1dfa73f6")
-                                --                                |> Task.attempt CreatedMessage
-                                --                                |> Just
-                                --
-                                --                        Nothing ->
-                                --                            --This should never happen
-                                --                            Nothing
-                                --                )
-                                --in
-                                ( { model | lastGetUsersId = getUsersId, users = Just (Set.union oldUsers newUsers) }
-                                , Cmd.none
-                                )
+                    case model.users of
+                        Just _ ->
+                            ( model, Cmd.none )
 
-                            Nothing ->
-                                ( { model | lastGetUsersId = getUsersId, users = Just newUsers }, Cmd.none )
-
-                    else
-                        ( model, Cmd.none )
+                        Nothing ->
+                            ( { model | users = Just newUsers }, Cmd.none )
 
                 Err error ->
                     ( Helper.addError error { model | lastDiscordBadStatus = Just time }, Cmd.none )
@@ -181,5 +206,4 @@ waveReaction messageId =
         Environment.botToken
         Environment.channelId
         messageId
-        "wave"
-        (DiscordApi.Id "df7ba0f4020ca70048a0226d1dfa73f6")
+        "👋"

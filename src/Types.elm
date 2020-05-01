@@ -9,7 +9,7 @@ module Types exposing
 
 import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
-import DiscordApi exposing (Id, Message, MessageId, User, UserId)
+import DiscordApi exposing (GuildId, GuildMember, Id, Message, MessageId, User)
 import Set exposing (Set)
 import Time exposing (Month)
 import Url exposing (Url)
@@ -23,14 +23,9 @@ type alias BackendModel =
     { errors : List String
     , lastDiscordBadStatus : Maybe Time.Posix
     , lastMessageId : Maybe (DiscordApi.Id MessageId)
-    , lastGetUsersId : Int
-    , users : Maybe (Set UserId)
-    , botUserId : Maybe (Id UserId)
+    , users : Maybe (List (Id DiscordApi.UserId))
+    , botUserId : Maybe (Id DiscordApi.UserId)
     }
-
-
-type alias UserId =
-    String
 
 
 type FrontendMsg
@@ -46,9 +41,10 @@ type ToBackend
 type BackendMsg
     = NoOp
     | CreatedMessage (Result String ())
+    | CreatedReaction (Result String ())
     | GotMessages (Maybe (DiscordApi.Id MessageId)) (Result String (List Message)) Time.Posix
     | UpdateLoop Time.Posix
-    | GotUsers Int (Result String (List User)) Time.Posix
+    | GotUsers (Result String (List GuildMember)) Time.Posix
     | GotBotUser (Result String User)
 
 
