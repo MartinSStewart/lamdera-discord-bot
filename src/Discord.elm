@@ -1,4 +1,4 @@
-module DiscordApi exposing
+module Discord exposing
     ( Attachment
     , AttachmentId
     , BotToken

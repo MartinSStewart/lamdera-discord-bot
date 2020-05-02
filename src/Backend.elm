@@ -1,6 +1,6 @@
 module Backend exposing (app, init, subscriptions, update, updateFromFrontend)
 
-import DiscordApi exposing (OptionalData(..))
+import Discord exposing (OptionalData(..))
 import Environment
 import Helper
 import Lamdera exposing (ClientId, SessionId)
@@ -111,14 +111,14 @@ update msg model =
                 getMessages =
                     case model.lastMessageId of
                         Just lastMessageId_ ->
-                            DiscordApi.getMessagesAfter
+                            Discord.getMessagesAfter
                                 Environment.botToken
                                 Environment.channelId
                                 lastMessageId_
                                 |> Helper.taskAttemptWithTime (GotMessages (Just lastMessageId_))
 
                         Nothing ->
-                            DiscordApi.getLatestMessage
+                            Discord.getLatestMessage
                                 Environment.botToken
                                 Environment.channelId
                                 |> Helper.taskAttemptWithTime (GotMessages Nothing)
@@ -129,12 +129,12 @@ update msg model =
                             Cmd.none
 
                         Nothing ->
-                            DiscordApi.getChannel Environment.botToken Environment.channelId
+                            Discord.getChannel Environment.botToken Environment.channelId
                                 |> Task.andThen
                                     (\channel ->
                                         case channel.guildId of
                                             Included guildId ->
-                                                DiscordApi.getUsers Environment.botToken guildId
+                                                Discord.getUsers Environment.botToken guildId
 
                                             Missing ->
                                                 Task.fail "Failed to get guild."
@@ -143,7 +143,7 @@ update msg model =
 
                 getBotUser =
                     if model.botUserId == Nothing then
-                        DiscordApi.getCurrentUser Environment.botToken |> Task.attempt GotBotUser
+                        Discord.getCurrentUser Environment.botToken |> Task.attempt GotBotUser
 
                     else
                         Cmd.none
@@ -200,9 +200,9 @@ update msg model =
                     ( Helper.addError error model, Cmd.none )
 
 
-waveReaction : DiscordApi.Id DiscordApi.MessageId -> Task String ()
+waveReaction : Discord.Id Discord.MessageId -> Task String ()
 waveReaction messageId =
-    DiscordApi.createReaction
+    Discord.createReaction
         Environment.botToken
         Environment.channelId
         messageId

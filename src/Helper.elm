@@ -5,7 +5,7 @@ module Helper exposing
     , taskMerge
     )
 
-import DiscordApi
+import Discord
 import Environment
 import Task exposing (Task)
 import Time
@@ -16,9 +16,9 @@ addError error model =
     { model | errors = error :: model.errors }
 
 
-isValidMessage : DiscordApi.Message -> Bool
+isValidMessage : Discord.Message -> Bool
 isValidMessage message =
-    message.author.bot /= DiscordApi.Included True
+    message.author.bot /= Discord.Included True
 
 
 taskMerge : Task a a -> Cmd a
