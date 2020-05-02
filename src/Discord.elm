@@ -1,7 +1,7 @@
 module Discord exposing
     ( Attachment
     , AttachmentId
-    , BotToken
+    , Authentication
     , Channel
     , ChannelId
     , Emoji
@@ -12,6 +12,7 @@ module Discord exposing
     , Id(..)
     , Message
     , MessageId
+    , MessagesRelativeTo(..)
     , OptionalData(..)
     , PartialGuild
     , Permissions
@@ -21,13 +22,11 @@ module Discord exposing
     , UserId
     , WebhookId
     , botToken
-    , createMessage
     , createReaction
     , getChannel
     , getCurrentUser
     , getCurrentUserGuilds
-    , getLatestMessage
-    , getMessagesAfter
+    , getMessages
     , getUsers
     )
 
@@ -53,98 +52,118 @@ import Time exposing (Posix(..))
 import Url.Builder exposing (QueryParameter)
 
 
-type BotToken
-    = BotToken String
-
-
-botToken : String -> BotToken
+botToken : String -> Authentication
 botToken botTokenText =
     BotToken botTokenText
 
 
-authorization : BotToken -> Http.Header
-authorization (BotToken botToken_) =
-    Http.header "Authorization" ("Bot " ++ botToken_)
+{-| Returns a list of guild members that are members of the guild.
 
+  - limit: Max number of members to return (1-1000)
+  - after: The highest user id in the previous page
 
-getUsersUrl : Id GuildId -> String
-getUsersUrl (Id guildId) =
-    Url.Builder.crossOrigin discordApiUrl [ "guilds", guildId, "members" ] []
-
-
-getUsers : BotToken -> Id GuildId -> Task String (List GuildMember)
-getUsers botToken_ guildId =
+-}
+getUsers : Authentication -> { guildId : Id GuildId, limit : Int, after : Maybe (Id UserId) } -> Task String (List GuildMember)
+getUsers botToken_ { guildId, limit, after } =
     httpGet
         botToken_
         (JD.list decodeGuildMember)
-        (getUsersUrl guildId)
+        (buildUrl
+            [ "guilds", rawId guildId, "members" ]
+            (Url.Builder.int "limit" limit
+                :: (case after of
+                        Just (Id after_) ->
+                            [ Url.Builder.string "after" after_ ]
+
+                        Nothing ->
+                            []
+                   )
+            )
+        )
 
 
-messagesUrl : Id ChannelId -> List QueryParameter -> String
-messagesUrl (Id channelId) query =
-    Url.Builder.crossOrigin discordApiUrl [ "channels", channelId, "messages" ] query
-
-
-createMessage : BotToken -> Id ChannelId -> String -> Task String ()
+createMessage : Authentication -> Id ChannelId -> String -> Task String ()
 createMessage botToken_ channelId content =
     httpPost
         botToken_
         (JD.succeed ())
-        (messagesUrl channelId [])
+        (buildUrl [ "channels", rawId channelId, "messages" ] [])
         (JE.object [ ( "content", JE.string content ) ])
 
 
-getLatestMessage : BotToken -> Id ChannelId -> Task String (List Message)
-getLatestMessage botToken_ channelId =
+{-| -}
+type MessagesRelativeTo
+    = Around (Id MessageId)
+    | Before (Id MessageId)
+    | After (Id MessageId)
+    | MostRecent
+
+
+{-| Returns the messages for a channel.
+If operating on a guild channel, this endpoint requires the `VIEW_CHANNEL` permission to be present on the current user.
+If the current user is missing the `READ_MESSAGE_HISTORY` permission in the channel then this will return no messages (since they cannot read the message history).
+
+  - channelId: The channel to get messages from
+  - limit: Max number of messages to return (1-100)
+  - relativeTo: Relative to which message should we retrieve messages?
+    Or should we get the most recent messages?
+
+-}
+getMessages : Authentication -> { channelId : Id ChannelId, limit : Int, relativeTo : MessagesRelativeTo } -> Task String (List Message)
+getMessages botToken_ { channelId, limit, relativeTo } =
     httpGet
         botToken_
         (JD.list decodeMessage)
-        (messagesUrl channelId [ Url.Builder.int "limit" 1 ])
+        (buildUrl
+            [ "channels", rawId channelId, "messages" ]
+            (Url.Builder.int "limit" limit
+                :: (case relativeTo of
+                        Around (Id messageId) ->
+                            [ Url.Builder.string "around" messageId ]
+
+                        Before (Id messageId) ->
+                            [ Url.Builder.string "around" messageId ]
+
+                        After (Id messageId) ->
+                            [ Url.Builder.string "around" messageId ]
+
+                        MostRecent ->
+                            []
+                   )
+            )
+        )
 
 
-getMessagesAfter : BotToken -> Id ChannelId -> Id MessageId -> Task String (List Message)
-getMessagesAfter botToken_ channelId (Id messageId) =
-    httpGet
-        botToken_
-        (JD.list decodeMessage)
-        (messagesUrl channelId [ Url.Builder.int "limit" 100, Url.Builder.string "after" messageId ])
+getChannel : Authentication -> Id ChannelId -> Task String Channel
+getChannel botToken_ (Id channelId) =
+    httpGet botToken_ decodeChannel (buildUrl [ "channels", channelId ] [])
 
 
-createReactionUrl : Id ChannelId -> Id MessageId -> String -> String
-createReactionUrl (Id channelId) (Id messageId) emoji =
-    Url.Builder.crossOrigin
-        discordApiUrl
-        [ "channels", channelId, "messages", messageId, "reactions", emoji, "@me" ]
-        []
-
-
-createReaction : BotToken -> Id ChannelId -> Id MessageId -> String -> Task String ()
+createReaction : Authentication -> Id ChannelId -> Id MessageId -> String -> Task String ()
 createReaction botToken_ channelId messageId emoji =
     httpPut botToken_
         (JD.succeed ())
-        (createReactionUrl channelId messageId emoji)
+        (buildUrl
+            [ "channels", rawId channelId, "messages", rawId messageId, "reactions", emoji, "@me" ]
+            []
+        )
         (JE.object [])
 
 
-getCurrentUser : BotToken -> Task String User
+getCurrentUser : Authentication -> Task String User
 getCurrentUser botToken_ =
     httpGet
         botToken_
         decodeUser
-        (Url.Builder.crossOrigin discordApiUrl [ "users", "@me" ] [])
+        (buildUrl [ "users", "@me" ] [])
 
 
-getCurrentUserGuilds : BotToken -> Task String (List PartialGuild)
+getCurrentUserGuilds : Authentication -> Task String (List PartialGuild)
 getCurrentUserGuilds botToken_ =
     httpGet
         botToken_
         (JD.list decodePartialGuild)
-        (Url.Builder.crossOrigin discordApiUrl [ "users", "@me", "guilds" ] [])
-
-
-getChannel : BotToken -> Id ChannelId -> Task String Channel
-getChannel botToken_ (Id channelId) =
-    httpGet botToken_ decodeChannel (Url.Builder.crossOrigin discordApiUrl [ "channels", channelId ] [])
+        (buildUrl [ "users", "@me", "guilds" ] [])
 
 
 discordApiUrl : String
@@ -152,7 +171,26 @@ discordApiUrl =
     "https://discordapp.com/api/"
 
 
-httpPost : BotToken -> JD.Decoder a -> String -> JE.Value -> Task String a
+buildUrl : List String -> List QueryParameter -> String
+buildUrl =
+    Url.Builder.crossOrigin discordApiUrl
+
+
+type Authentication
+    = BotToken String
+
+
+rawId : Id idType -> String
+rawId (Id id) =
+    id
+
+
+authorization : Authentication -> Http.Header
+authorization (BotToken botToken_) =
+    Http.header "Authorization" ("Bot " ++ botToken_)
+
+
+httpPost : Authentication -> JD.Decoder a -> String -> JE.Value -> Task String a
 httpPost botToken_ decoder url body =
     Http.task
         { method = "POST"
@@ -164,7 +202,7 @@ httpPost botToken_ decoder url body =
         }
 
 
-httpPut : BotToken -> JD.Decoder a -> String -> JE.Value -> Task String a
+httpPut : Authentication -> JD.Decoder a -> String -> JE.Value -> Task String a
 httpPut botToken_ decoder url body =
     Http.task
         { method = "PUT"
@@ -176,7 +214,7 @@ httpPut botToken_ decoder url body =
         }
 
 
-httpGet : BotToken -> JD.Decoder a -> String -> Task String a
+httpGet : Authentication -> JD.Decoder a -> String -> Task String a
 httpGet botToken_ decoder url =
     Http.task
         { method = "GET"
@@ -188,6 +226,7 @@ httpGet botToken_ decoder url =
         }
 
 
+resolver : JD.Decoder a -> Http.Response String -> Result String a
 resolver decoder response =
     case response of
         Http.BadUrl_ badUrl ->

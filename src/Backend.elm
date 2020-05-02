@@ -1,6 +1,6 @@
 module Backend exposing (app, init, subscriptions, update, updateFromFrontend)
 
-import Discord exposing (OptionalData(..))
+import Discord exposing (MessagesRelativeTo(..), OptionalData(..))
 import Environment
 import Helper
 import Lamdera exposing (ClientId, SessionId)
@@ -111,16 +111,15 @@ update msg model =
                 getMessages =
                     case model.lastMessageId of
                         Just lastMessageId_ ->
-                            Discord.getMessagesAfter
+                            Discord.getMessages
                                 Environment.botToken
-                                Environment.channelId
-                                lastMessageId_
+                                { channelId = Environment.channelId, limit = 100, relativeTo = After lastMessageId_ }
                                 |> Helper.taskAttemptWithTime (GotMessages (Just lastMessageId_))
 
                         Nothing ->
-                            Discord.getLatestMessage
+                            Discord.getMessages
                                 Environment.botToken
-                                Environment.channelId
+                                { channelId = Environment.channelId, limit = 1, relativeTo = MostRecent }
                                 |> Helper.taskAttemptWithTime (GotMessages Nothing)
 
                 getUsers =
@@ -134,7 +133,9 @@ update msg model =
                                     (\channel ->
                                         case channel.guildId of
                                             Included guildId ->
-                                                Discord.getUsers Environment.botToken guildId
+                                                Discord.getUsers
+                                                    Environment.botToken
+                                                    { guildId = guildId, limit = 100, after = Nothing }
 
                                             Missing ->
                                                 Task.fail "Failed to get guild."

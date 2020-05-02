@@ -2,12 +2,12 @@ module Environment exposing (botToken, channelId)
 
 {-| -}
 
-import Discord exposing (BotToken, ChannelId, GuildId, Id, UserId)
+import Discord exposing (Authentication, ChannelId, GuildId, Id, UserId)
 
 
 {-| Authentication code for your bot. Not to be confused with Client ID and Client Secret.
 -}
-botToken : BotToken
+botToken : Authentication
 botToken =
     Discord.botToken ""
 
