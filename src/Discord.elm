@@ -1,33 +1,10 @@
 module Discord exposing
-    ( Attachment
-    , AttachmentId
-    , Authentication
-    , Channel
-    , ChannelId
-    , Emoji
-    , EmojiId
-    , Guild
-    , GuildId
-    , GuildMember
-    , Id(..)
-    , Message
-    , MessageId
-    , MessagesRelativeTo(..)
-    , OptionalData(..)
-    , PartialGuild
-    , Permissions
-    , Reaction
-    , RoleId
-    , User
-    , UserId
-    , WebhookId
-    , botToken
-    , createReaction
-    , getChannel
-    , getCurrentUser
-    , getCurrentUserGuilds
-    , getMessages
-    , getUsers
+    ( Authentication, botToken
+    , getChannel, getMessages, MessagesRelativeTo(..), createMessage, createReaction, Channel, ChannelId, Message, MessageId, Reaction, Attachment, AttachmentId
+    , Emoji, EmojiId
+    , getUsers, Guild, GuildId, GuildMember, RoleId, PartialGuild
+    , getCurrentUser, getCurrentUserGuilds, User, UserId, Permissions
+    , Id(..), OptionalData(..), WebhookId
     )
 
 {-| The beginnings of an Elm package...
@@ -36,6 +13,35 @@ Useful Discord links:
 
   - API documentation: <https://discordapp.com/developers/docs/intro>
   - Create bot invites: <https://discordapi.com/permissions.html>
+
+Before starting, note that this package requires user credentials and creates tasks.
+If I were evil (or my account got hacked) I could try to sneak in code that sends your Discord credentials to some other server.
+For that reason it's probably a good idea to have a look at the source code and double check that it doesn't try anything sneaky!
+
+
+# Authentication
+
+@docs Authentication, botToken
+
+
+# Channel
+
+@docs getChannel, getMessages, MessagesRelativeTo, createMessage, createReaction, Channel, ChannelId, Message, MessageId, Reaction, Attachment, AttachmentId
+
+
+# Emoji
+
+@docs Emoji, EmojiId
+
+
+# Guild
+
+@docs getUsers, Guild, GuildId, GuildMember, RoleId, PartialGuild
+
+
+# User
+
+@docs getCurrentUser, getCurrentUserGuilds, User, UserId, Permissions
 
 -}
 
