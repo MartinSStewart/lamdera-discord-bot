@@ -6,7 +6,7 @@ module Discord exposing
     , Invite, InviteWithMetadata, InviteCode(..)
     , getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
     , WebhookId
-    , Bits, ChannelInviteConfig, Id(..), OptionalData(..), createChannelInvite, defaultChannelInviteConfig, deleteChannelPermission, editMessage, getChannelInvites, listGuildMembers
+    , Bits, ChannelInviteConfig, DataUri(..), GuildModifications, GuildPreview, Id(..), Modify(..), OptionalData(..), Roles(..), addPinnedChannelMessage, createChannelInvite, createGuildEmoji, defaultChannelInviteConfig, deleteChannelPermission, deleteGuildEmoji, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildEmojis, getGuildPreview, getPinnedMessages, listGuildEmojis, listGuildMembers, modifyGuildEmoji, noGuildModifications, triggerTypingIndicator
     )
 
 {-| The beginnings of an Elm package...
@@ -453,16 +453,189 @@ deletePinnedChannelMessage authentication { channelId, messageId } =
 
 
 
---groupDmAddRecipient : Authentication -> { channelId : Id ChannelId, userId : Id UserId } -> Task String ()
---groupDmAddRecipient authentication { channelId, userId } =
---    httpPut
---        authentication
---        (JD.succeed ())
---        [ "channels", rawId channelId, "recipients", rawId userId ]
---        []
---        (JE.object [ "access_token" ])
+-- Group DM Add Recipient excluded
+-- Group DM Remove Recipient excluded
+--
 --- EMOJI ENDPOINTS ---
+
+
+{-| Returns a list of emojis for the given guild.
+-}
+listGuildEmojis : Authentication -> Id GuildId -> Task String (List Emoji)
+listGuildEmojis authentication guildId =
+    httpGet
+        authentication
+        (JD.list decodeEmoji)
+        [ "guilds", rawId guildId, "emojis" ]
+        []
+
+
+{-| Returns an emoji for the given guild and emoji IDs.
+-}
+getGuildEmojis : Authentication -> { guildId : Id GuildId, emojiId : Id EmojiId } -> Task String Emoji
+getGuildEmojis authentication { guildId, emojiId } =
+    httpGet
+        authentication
+        decodeEmoji
+        [ "guilds", rawId guildId, "emojis", rawId emojiId ]
+        []
+
+
+{-| Create a new emoji for the guild. Requires the `MANAGE_EMOJIS` permission.
+
+  - emojiName: Name of the emoji
+  - image: A 128x128 emoji image
+  - roles: A list of roles in this guild that can use this emoji
+
+Emojis and animated emojis have a maximum file size of 256kb.
+
+-}
+createGuildEmoji :
+    Authentication
+    -> { guildId : Id GuildId, emojiName : String, image : DataUri, roles : Roles }
+    -> Task String Emoji
+createGuildEmoji authentication { guildId, emojiName, image, roles } =
+    httpPost
+        authentication
+        decodeEmoji
+        [ "guilds", rawId guildId, "emojis" ]
+        []
+        (JE.object
+            [ ( "name", JE.string emojiName )
+            , ( "image", JE.string (rawDataUri image) )
+            , ( "roles", encodeRoles roles )
+            ]
+        )
+
+
+{-| Modify the given emoji. Requires the MANAGE\_EMOJIS permission.
+-}
+modifyGuildEmoji :
+    Authentication
+    ->
+        { guildId : Id GuildId
+        , emojiId : Id EmojiId
+        , emojiName : Modify String
+        , roles : Modify Roles
+        }
+    -> Task String Emoji
+modifyGuildEmoji authentication { guildId, emojiId, emojiName, roles } =
+    httpPost
+        authentication
+        decodeEmoji
+        [ "guilds", rawId guildId, "emojis" ]
+        []
+        (JE.object
+            ((case emojiName of
+                Replace emojiName_ ->
+                    [ ( "name", JE.string emojiName_ ) ]
+
+                Unchanged ->
+                    []
+             )
+                ++ (case roles of
+                        Replace roles_ ->
+                            [ ( "roles", encodeRoles roles_ ) ]
+
+                        Unchanged ->
+                            []
+                   )
+            )
+        )
+
+
+{-| Delete the given emoji. Requires the `MANAGE_EMOJIS` permission.
+-}
+deleteGuildEmoji : Authentication -> { guildId : Id GuildId, emojiId : Id EmojiId } -> Task String ()
+deleteGuildEmoji authentication { guildId, emojiId } =
+    httpDelete
+        authentication
+        (JD.succeed ())
+        [ "guilds", rawId guildId, "emojis", rawId emojiId ]
+        []
+        (JE.object [])
+
+
+
 --- GUILD ENDPOINTS ---
+
+
+{-| Returns the guild for the given id.
+-}
+getGuild : Authentication -> Id GuildId -> Task String Guild
+getGuild authentication guildId =
+    httpGet
+        authentication
+        decodeGuild
+        [ "guilds", rawId guildId ]
+        []
+
+
+{-| Returns a preview of a guild for the given id.
+
+This endpoint is only for Public guilds
+
+-}
+getGuildPreview : Authentication -> Id GuildId -> Task String GuildPreview
+getGuildPreview authentication guildId =
+    httpGet
+        authentication
+        decodeGuildPreview
+        [ "guilds", rawId guildId, "preview" ]
+        []
+
+
+noGuildModifications : GuildModifications
+noGuildModifications =
+    { name = Unchanged
+    , region = Unchanged
+    , verificationLevel = Unchanged
+    , defaultMessageNotifications = Unchanged
+    , explicitContentFilter = Unchanged
+    , afkChannelId = Unchanged
+    , afkTimeout = Unchanged
+    , icon = Unchanged
+    , ownerId = Unchanged
+    , splash = Unchanged
+    , banner = Unchanged
+    , systemChannelId = Unchanged
+    , rulesChannelId = Unchanged
+    , publicUpdatesChannelId = Unchanged
+    , preferredLocale = Unchanged
+    }
+
+
+
+--{-| Modify a guild's settings. Requires the `MANAGE_GUILD` permission.
+--
+--You probably only plan to change one or two things so I recommend you do the following:
+--
+--    import Discord exposing (Modify(..))
+--
+--    noChanges =
+--        Discord.noGuildModifications
+--
+--    changeGuildName =
+--        Discord.modifyGuild
+--            myAuth
+--            myGuildId
+--            { noChange | name = Replace "New Guild Name" }
+--
+---}
+--modifyGuild :
+--    Authentication
+--    -> Id GuildId
+--    -> GuildModifications
+--    -> Task String Guild
+--modifyGuild authentication guildId =
+--    httpPatch
+--        authentication
+--        decodeGuild
+--        [ "guilds", rawId guildId ]
+--        []
+--        (JE.object
+--            []
+--        )
 
 
 {-| Returns a list of guild members that are members of the guild.
@@ -471,7 +644,10 @@ deletePinnedChannelMessage authentication { channelId, messageId } =
   - after: The highest user id in the previous page
 
 -}
-listGuildMembers : Authentication -> { guildId : Id GuildId, limit : Int, after : Maybe (Id UserId) } -> Task String (List GuildMember)
+listGuildMembers :
+    Authentication
+    -> { guildId : Id GuildId, limit : Int, after : Maybe (Id UserId) }
+    -> Task String (List GuildMember)
 listGuildMembers authentication { guildId, limit, after } =
     httpGet
         authentication
@@ -522,19 +698,25 @@ discordApiUrl =
     "https://discordapp.com/api/"
 
 
+{-| Looks something like this `MTk4NjIyNDgzNDcxOTI1MjQ4.Cl2FMQ.ZnCjm1XVW7vRze4b7Cq4se7kKWs`.
+See the [Discord documentation](https://discordapp.com/developers/docs/reference#authentication) for more info.
+-}
 botToken : String -> Authentication
-botToken botTokenText =
-    BotToken botTokenText
+botToken =
+    BotToken
+
+
+{-| Looks something like this `CZhtkLDpNYXgPH9Ml6shqh2OwykChw`.
+See the [Discord documentation](https://discordapp.com/developers/docs/reference#authentication) for more info.
+-}
+bearerToken : String -> Authentication
+bearerToken =
+    BearerToken
 
 
 rawId : Id idType -> String
 rawId (Id id) =
     id
-
-
-authorization : Authentication -> Http.Header
-authorization (BotToken authentication) =
-    Http.header "Authorization" ("Bot " ++ authentication)
 
 
 httpPost : Authentication -> JD.Decoder a -> List String -> List QueryParameter -> JE.Value -> Task String a
@@ -566,7 +748,16 @@ http : Authentication -> String -> JD.Decoder a -> List String -> List QueryPara
 http authentication requestType decoder path queryParameters body =
     Http.task
         { method = requestType
-        , headers = [ authorization authentication ]
+        , headers =
+            [ Http.header "Authorization"
+                (case authentication of
+                    BotToken token ->
+                        "Bot " ++ token
+
+                    BearerToken token ->
+                        "Bearer " ++ token
+                )
+            ]
         , url = Url.Builder.crossOrigin discordApiUrl path queryParameters
         , resolver = Http.stringResolver (resolver decoder)
         , body = body
@@ -590,12 +781,17 @@ resolver decoder response =
             "Bad status " ++ String.fromInt metadata.statusCode ++ "      " ++ body |> Err
 
         Http.GoodStatus_ _ body ->
-            case JD.decodeString decoder (Debug.log "" body) of
+            case JD.decodeString decoder body of
                 Ok data ->
                     Ok data
 
                 Err error ->
                     JD.errorToString error |> Err
+
+
+rawDataUri : DataUri -> String
+rawDataUri (DataUri dataUri) =
+    dataUri
 
 
 
@@ -604,6 +800,7 @@ resolver decoder response =
 
 type Authentication
     = BotToken String
+    | BearerToken String
 
 
 type OptionalData a
@@ -680,6 +877,20 @@ type alias PartialGuild =
     , icon : Maybe String
     , owner : Bool
     , permissions : Permissions
+    }
+
+
+type alias GuildPreview =
+    { id : Id GuildId
+    , name : String
+    , icon : Maybe String
+    , splash : Maybe String
+    , discoverySplash : Maybe String
+    , emojis : List Emoji
+    , features : List String
+    , approximateMemberCount : Int
+    , approximatePresenceCount : Int
+    , description : Maybe String
     }
 
 
@@ -951,6 +1162,41 @@ type MessagesRelativeTo
     | Before (Id MessageId)
     | After (Id MessageId)
     | MostRecent
+
+
+type Modify a
+    = Replace a
+    | Unchanged
+
+
+type Roles
+    = RoleList (List (Id RoleId))
+    | AllRoles
+
+
+{-| A [data URI](https://en.wikipedia.org/wiki/Data_URI_scheme) (they look like this `data:image/jpeg;base64,BASE64_ENCODED_JPEG_IMAGE_DATA`)
+-}
+type DataUri
+    = DataUri String
+
+
+type alias GuildModifications =
+    { name : Modify String
+    , region : Modify (Maybe String)
+    , verificationLevel : Modify (Maybe Int)
+    , defaultMessageNotifications : Modify (Maybe Int)
+    , explicitContentFilter : Modify (Maybe Int)
+    , afkChannelId : Modify (Maybe (Id ChannelId))
+    , afkTimeout : Modify (Quantity Int Seconds)
+    , icon : Modify (Maybe DataUri)
+    , ownerId : Modify (Id UserId)
+    , splash : Modify (Maybe DataUri)
+    , banner : Modify (Maybe DataUri)
+    , systemChannelId : Modify (Maybe (Id ChannelId))
+    , rulesChannelId : Modify (Maybe (Id ChannelId))
+    , publicUpdatesChannelId : Modify (Maybe (Id ChannelId))
+    , preferredLocale : Modify (Maybe String)
+    }
 
 
 
@@ -1290,3 +1536,37 @@ decodeDiscriminator =
                     JD.fail "Invalid discriminator"
         )
         JD.string
+
+
+decodeGuildPreview : JD.Decoder GuildPreview
+decodeGuildPreview =
+    JD.succeed GuildPreview
+        |> JD.andMap (JD.field "id" decodeSnowflake)
+        |> JD.andMap (JD.field "name" JD.string)
+        |> JD.andMap (JD.field "icon" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "splash" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "discovery_splash" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "emojis" (JD.list decodeEmoji))
+        |> JD.andMap (JD.field "features" (JD.list JD.string))
+        |> JD.andMap (JD.field "approximate_member_count" JD.int)
+        |> JD.andMap (JD.field "approximate_presence_count" JD.int)
+        |> JD.andMap (JD.field "description" (JD.nullable JD.string))
+
+
+
+--- ENCODERS ---
+
+
+encodeId : Id idType -> JE.Value
+encodeId (Id id) =
+    JE.string id
+
+
+encodeRoles : Roles -> JE.Value
+encodeRoles roles =
+    case roles of
+        RoleList roles_ ->
+            JE.list encodeId roles_
+
+        AllRoles ->
+            JE.null
