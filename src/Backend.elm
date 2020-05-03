@@ -133,7 +133,7 @@ update msg model =
                                     (\channel ->
                                         case channel.guildId of
                                             Included guildId ->
-                                                Discord.getUsers
+                                                Discord.listGuildMembers
                                                     Environment.botToken
                                                     { guildId = guildId, limit = 100, after = Nothing }
 

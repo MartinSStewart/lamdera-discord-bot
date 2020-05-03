@@ -1,12 +1,12 @@
 module Discord exposing
     ( Authentication, botToken
-    , getChannel, getMessages, MessagesRelativeTo(..), createMessage, getReactions, createReaction, deleteOwnReaction, deleteUserReaction, deleteAllReactions, deleteAllReactionsForEmoji, deleteMessage, bulkDeleteMessage, Channel, PartialChannel, ChannelId, Message, MessageId, Reaction, Attachment, AttachmentId
+    , getChannel, deleteChannel, getMessages, getMessage, MessagesRelativeTo(..), createMessage, getReactions, createReaction, deleteOwnReaction, deleteUserReaction, deleteAllReactions, deleteAllReactionsForEmoji, deleteMessage, bulkDeleteMessage, Channel, PartialChannel, ChannelId, Message, MessageId, Reaction, Attachment, AttachmentId
     , Emoji, EmojiId
-    , getUsers, Guild, GuildId, GuildMember, RoleId, PartialGuild
-    , Invite, InviteWithMetadata
+    , Guild, GuildId, GuildMember, RoleId, PartialGuild
+    , Invite, InviteWithMetadata, InviteCode(..)
     , getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
     , WebhookId
-    , ChannelInviteConfig, Id(..), OptionalData(..), createChannelInvite, defaultChannelInviteConfig, editMessage, getChannelInvites
+    , Bits, ChannelInviteConfig, Id(..), OptionalData(..), createChannelInvite, defaultChannelInviteConfig, deleteChannelPermission, editMessage, getChannelInvites, listGuildMembers
     )
 
 {-| The beginnings of an Elm package...
@@ -31,7 +31,7 @@ For that reason it's probably a good idea to have a look at the source code and 
 
 # Channel
 
-@docs getChannel, getMessages, MessagesRelativeTo, createMessage, getReactions, createReaction, deleteOwnReaction, deleteUserReaction, deleteAllReactions, deleteAllReactionsForEmoji, deleteMessage, bulkDeleteMessage, Channel, PartialChannel, ChannelId, Message, MessageId, Reaction, Attachment, AttachmentId
+@docs getChannel, deleteChannel, getMessages, getMessage, MessagesRelativeTo, createMessage, getReactions, createReaction, deleteOwnReaction, deleteUserReaction, deleteAllReactions, deleteAllReactionsForEmoji, deleteMessage, bulkDeleteMessage, Channel, PartialChannel, ChannelId, Message, MessageId, Reaction, Attachment, AttachmentId
 
 
 # Emoji
@@ -46,7 +46,7 @@ For that reason it's probably a good idea to have a look at the source code and 
 
 # Invite
 
-@docs Invite, InviteWithMetadata
+@docs Invite, InviteWithMetadata, InviteCode
 
 
 # User
@@ -76,34 +76,12 @@ import Time exposing (Posix(..))
 import Url.Builder exposing (QueryParameter)
 
 
-botToken : String -> Authentication
-botToken botTokenText =
-    BotToken botTokenText
+
+--- CHANNEL ENDPOINTS ---
 
 
-{-| Returns a list of guild members that are members of the guild.
-
-  - limit: Max number of members to return (1-1000)
-  - after: The highest user id in the previous page
-
+{-| Get a channel by ID.
 -}
-getUsers : Authentication -> { guildId : Id GuildId, limit : Int, after : Maybe (Id UserId) } -> Task String (List GuildMember)
-getUsers authentication { guildId, limit, after } =
-    httpGet
-        authentication
-        (JD.list decodeGuildMember)
-        [ "guilds", rawId guildId, "members" ]
-        (Url.Builder.int "limit" limit
-            :: (case after of
-                    Just (Id after_) ->
-                        [ Url.Builder.string "after" after_ ]
-
-                    Nothing ->
-                        []
-               )
-        )
-
-
 getChannel : Authentication -> Id ChannelId -> Task String Channel
 getChannel authentication (Id channelId) =
     httpGet authentication decodeChannel [ "channels", channelId ] []
@@ -129,14 +107,6 @@ For Public servers, the set Rules or Guidelines channel and the Moderators-only 
 deleteChannel : Authentication -> Id ChannelId -> Task String Channel
 deleteChannel authentication (Id channelId) =
     httpDelete authentication decodeChannel [ "channels", channelId ] [] (JE.string "")
-
-
-{-| -}
-type MessagesRelativeTo
-    = Around (Id MessageId)
-    | Before (Id MessageId)
-    | After (Id MessageId)
-    | MostRecent
 
 
 {-| Returns the messages for a channel.
@@ -357,21 +327,6 @@ getChannelInvites authentication channelId =
         []
 
 
-{-| -maxAge: Duration of invite in before it expires. `Nothing` means it never expires.
--maxUsers: Max number of uses. `Nothing` means it has unlimited uses.
--temporaryMembership: Whether this invite only grants temporary membership.
--unique: If true, don't try to reuse a similar invite (useful for creating many unique one time use invites).
--targetUser: The target user id for this invite.
--}
-type alias ChannelInviteConfig =
-    { maxAge : Maybe (Quantity Int Seconds)
-    , maxUses : Maybe Int
-    , temporaryMembership : Bool
-    , unique : Bool
-    , targetUser : Maybe (Id UserId)
-    }
-
-
 {-| Default invite settings. Can be used an unlimited number of times but expires after 1 day.
 -}
 defaultChannelInviteConfig : ChannelInviteConfig
@@ -428,127 +383,114 @@ createChannelInvite authentication channelId { maxAge, maxUses, temporaryMembers
         )
 
 
-type alias Invite =
-    { code : InviteCode
-    , guild : OptionalData PartialGuild
-    , channel : PartialChannel
-    , inviter : OptionalData User
-    , targetUser : OptionalData PartialUser
-    , targetUserType : OptionalData Int
-    , approximatePresenceCount : OptionalData Int
-    , approximateMemberCount : OptionalData Int
-    }
+{-| Delete a channel permission overwrite for a user or role in a channel.
+Only usable for guild channels.
+Requires the `MANAGE_ROLES` permission. For more information about permissions, see [permissions](https://discordapp.com/developers/docs/topics/permissions#permissions).
+-}
+deleteChannelPermission :
+    Authentication
+    -> { channelId : Id ChannelId, overwriteId : Id OverwriteId }
+    -> Task String (List InviteWithMetadata)
+deleteChannelPermission authentication { channelId, overwriteId } =
+    httpDelete
+        authentication
+        (JD.list decodeInviteWithMetadata)
+        [ "channels", rawId channelId, "permissions", rawId overwriteId ]
+        []
+        (JE.object [])
 
 
-type alias InviteWithMetadata =
-    { code : InviteCode
-    , guild : OptionalData PartialGuild
-    , channel : PartialChannel
-    , inviter : OptionalData User
-    , targetUser : OptionalData PartialUser
-    , targetUserType : OptionalData Int
-    , approximatePresenceCount : OptionalData Int
-    , approximateMemberCount : OptionalData Int
-    , uses : Int
-    , maxUses : Int
-    , maxAge : Maybe (Quantity Int Seconds)
-    , temporaryMembership : Bool
-    , createdAt : Time.Posix
-    }
+{-| Post a typing indicator for the specified channel.
+Generally bots should not implement this route.
+However, if a bot is responding to a command and expects the computation to take a few seconds, this endpoint may be called to let the user know that the bot is processing their message.
+-}
+triggerTypingIndicator : Authentication -> Id ChannelId -> Task String ()
+triggerTypingIndicator authentication channelId =
+    httpPost
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "typing" ]
+        []
+        (JE.object [])
 
 
-decodeInviteCode : JD.Decoder InviteCode
-decodeInviteCode =
-    JD.map InviteCode JD.string
+{-| Returns all pinned messages in the channel.
+-}
+getPinnedMessages : Authentication -> Id ChannelId -> Task String (List Message)
+getPinnedMessages authentication channelId =
+    httpGet
+        authentication
+        (JD.list decodeMessage)
+        [ "channels", rawId channelId, "pins" ]
+        []
 
 
-decodeInvite : JD.Decoder Invite
-decodeInvite =
-    JD.map8 Invite
-        (JD.field "code" decodeInviteCode)
-        (decodeOptionalData "guild" decodePartialGuild)
-        (JD.field "channel" decodePartialChannel)
-        (decodeOptionalData "inviter" decodeUser)
-        (decodeOptionalData "target_user" decodePartialUser)
-        (decodeOptionalData "target_user_type" JD.int)
-        (decodeOptionalData "approximate_presence_count" JD.int)
-        (decodeOptionalData "approximate_member_count" JD.int)
+{-| Pin a message in a channel. Requires the `MANAGE_MESSAGES` permission.
+
+The max pinned messages is 50.
+
+-}
+addPinnedChannelMessage : Authentication -> { channelId : Id ChannelId, messageId : Id MessageId } -> Task String ()
+addPinnedChannelMessage authentication { channelId, messageId } =
+    httpPut
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "pins", rawId messageId ]
+        []
+        (JE.object [])
 
 
-decodeInviteWithMetadata : JD.Decoder InviteWithMetadata
-decodeInviteWithMetadata =
-    JD.succeed InviteWithMetadata
-        |> JD.andMap (JD.field "code" decodeInviteCode)
-        |> JD.andMap (decodeOptionalData "guild" decodePartialGuild)
-        |> JD.andMap (JD.field "channel" decodePartialChannel)
-        |> JD.andMap (decodeOptionalData "inviter" decodeUser)
-        |> JD.andMap (decodeOptionalData "target_user" decodePartialUser)
-        |> JD.andMap (decodeOptionalData "target_user_type" JD.int)
-        |> JD.andMap (decodeOptionalData "approximate_presence_count" JD.int)
-        |> JD.andMap (decodeOptionalData "approximate_member_count" JD.int)
-        |> JD.andMap (JD.field "uses" JD.int)
-        |> JD.andMap (JD.field "max_uses" JD.int)
-        |> JD.andMap
-            (JD.field "max_age"
-                (JD.map
-                    (\value ->
-                        if value == 0 then
-                            Nothing
-
-                        else
-                            Just (Quantity value)
-                    )
-                    JD.int
-                )
-            )
-        |> JD.andMap (JD.field "temporary" JD.bool)
-        |> JD.andMap (JD.field "created_at" Iso8601.decoder)
+{-| Delete a pinned message in a channel. Requires the `MANAGE_MESSAGES` permission.
+-}
+deletePinnedChannelMessage : Authentication -> { channelId : Id ChannelId, messageId : Id MessageId } -> Task String ()
+deletePinnedChannelMessage authentication { channelId, messageId } =
+    httpDelete
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "pins", rawId messageId ]
+        []
+        (JE.object [])
 
 
-type alias PartialChannel =
-    { id : Id ChannelId
-    , name : String
-    , type_ : ChannelType
-    }
+
+--groupDmAddRecipient : Authentication -> { channelId : Id ChannelId, userId : Id UserId } -> Task String ()
+--groupDmAddRecipient authentication { channelId, userId } =
+--    httpPut
+--        authentication
+--        (JD.succeed ())
+--        [ "channels", rawId channelId, "recipients", rawId userId ]
+--        []
+--        (JE.object [ "access_token" ])
+--- EMOJI ENDPOINTS ---
+--- GUILD ENDPOINTS ---
 
 
-decodePartialChannel : JD.Decoder PartialChannel
-decodePartialChannel =
-    JD.map3 PartialChannel
-        (JD.field "id" decodeSnowflake)
-        (JD.field "name" JD.string)
-        (JD.field "type" decodeChannelType)
+{-| Returns a list of guild members that are members of the guild.
 
+  - limit: Max number of members to return (1-1000)
+  - after: The highest user id in the previous page
 
-type alias PartialUser =
-    { id : Id UserId
-    , username : String
-    , avatar : Maybe String
-    , discriminator : Int
-    }
+-}
+listGuildMembers : Authentication -> { guildId : Id GuildId, limit : Int, after : Maybe (Id UserId) } -> Task String (List GuildMember)
+listGuildMembers authentication { guildId, limit, after } =
+    httpGet
+        authentication
+        (JD.list decodeGuildMember)
+        [ "guilds", rawId guildId, "members" ]
+        (Url.Builder.int "limit" limit
+            :: (case after of
+                    Just (Id after_) ->
+                        [ Url.Builder.string "after" after_ ]
 
-
-decodePartialUser : JD.Decoder PartialUser
-decodePartialUser =
-    JD.map4 PartialUser
-        (JD.field "id" decodeSnowflake)
-        (JD.field "username" JD.string)
-        (JD.field "avatar" (JD.nullable JD.string))
-        (JD.field "discriminator" decodeDiscriminator)
-
-
-decodeDiscriminator : JD.Decoder Int
-decodeDiscriminator =
-    JD.andThen
-        (\text ->
-            case String.toInt text of
-                Just value ->
-                    JD.succeed value
-
-                Nothing ->
-                    JD.fail "Invalid discriminator"
+                    Nothing ->
+                        []
+               )
         )
-        JD.string
+
+
+
+--- INVITE ENDPOINTS ---
+--- USER ENDPOINTS ---
 
 
 getCurrentUser : Authentication -> Task String User
@@ -569,13 +511,20 @@ getCurrentUserGuilds authentication =
         []
 
 
+
+--- VOICE ENDPOINTS ---
+--- WEBHOOK ENDPOINTS ---
+--- MISCELLANEOUS ---
+
+
 discordApiUrl : String
 discordApiUrl =
     "https://discordapp.com/api/"
 
 
-type Authentication
-    = BotToken String
+botToken : String -> Authentication
+botToken botTokenText =
+    BotToken botTokenText
 
 
 rawId : Id idType -> String
@@ -649,264 +598,17 @@ resolver decoder response =
                     JD.errorToString error |> Err
 
 
+
+--- TYPES ---
+
+
+type Authentication
+    = BotToken String
+
+
 type OptionalData a
     = Included a
     | Missing
-
-
-type alias GuildMember =
-    { user : OptionalData User
-    , nickname : Maybe String
-    , roles : List (Id RoleId)
-    , joinedAt : Time.Posix
-    , premiumSince : OptionalData (Maybe Time.Posix)
-    , deaf : Bool
-    , mute : Bool
-    }
-
-
-decodeGuildMember : JD.Decoder GuildMember
-decodeGuildMember =
-    JD.succeed GuildMember
-        |> JD.andMap (decodeOptionalData "user" decodeUser)
-        |> JD.andMap (JD.field "nick" (JD.nullable JD.string))
-        |> JD.andMap (JD.field "roles" (JD.list decodeSnowflake))
-        |> JD.andMap (JD.field "joined_at" Iso8601.decoder)
-        |> JD.andMap (decodeOptionalData "premium_since" (JD.nullable Iso8601.decoder))
-        |> JD.andMap (JD.field "deaf" JD.bool)
-        |> JD.andMap (JD.field "mute" JD.bool)
-
-
-decodeOptionalData : String -> JD.Decoder a -> JD.Decoder (OptionalData a)
-decodeOptionalData field decoder =
-    JD.oneOf
-        [ JD.field field decoder |> JD.map Included
-        , JD.field field (JD.fail ("Incorrect data for field: " ++ field))
-        , JD.succeed Missing
-        ]
-
-
-{-| In Discord's documentation these are called snowflakes. Id is much quicker to write though.
--}
-type Id idType
-    = Id String
-
-
-type MessageId
-    = MessageId Never
-
-
-type UserId
-    = UserId Never
-
-
-type RoleId
-    = RoleId Never
-
-
-type ChannelId
-    = ChannelId Never
-
-
-type GuildId
-    = GuildId Never
-
-
-type WebhookId
-    = WebhookId Never
-
-
-type AttachmentId
-    = AttachmentId Never
-
-
-type EmojiId
-    = EmojiId Never
-
-
-type ApplicationId
-    = ApplicationId Never
-
-
-type InviteCode
-    = InviteCode String
-
-
-type alias Message =
-    { id : Id MessageId
-    , channelId : Id ChannelId
-    , guildId : OptionalData (Id GuildId)
-    , author : User
-
-    -- member field is excluded
-    , content : String
-    , timestamp : Time.Posix
-    , editedTimestamp : Maybe Time.Posix
-    , textToSpeech : Bool
-    , mentionEveryone : Bool
-
-    -- mentions field is excluded
-    , mentionRoles : List (Id RoleId)
-
-    -- mention_channels field is excluded
-    , attachments : List Attachment
-
-    -- embeds field is excluded
-    , reactions : OptionalData (List Reaction)
-
-    -- nonce field is excluded
-    , pinned : Bool
-    , webhookId : OptionalData (Id WebhookId)
-    , type_ : Int
-
-    -- activity field is excluded
-    -- application field is excluded
-    -- message_reference field is excluded
-    , flags : OptionalData Int
-    }
-
-
-decodeSnowflake : JD.Decoder (Id idType)
-decodeSnowflake =
-    JD.map Id JD.string
-
-
-decodeMessage : JD.Decoder Message
-decodeMessage =
-    JD.succeed Message
-        |> JD.andMap (JD.field "id" decodeSnowflake)
-        |> JD.andMap (JD.field "channel_id" decodeSnowflake)
-        |> JD.andMap (decodeOptionalData "guild_id" decodeSnowflake)
-        |> JD.andMap (JD.field "author" decodeUser)
-        |> JD.andMap (JD.field "content" JD.string)
-        |> JD.andMap (JD.field "timestamp" Iso8601.decoder)
-        |> JD.andMap (JD.field "edited_timestamp" (JD.nullable Iso8601.decoder))
-        |> JD.andMap (JD.field "tts" JD.bool)
-        |> JD.andMap (JD.field "mention_everyone" JD.bool)
-        |> JD.andMap (JD.field "mention_roles" (JD.list decodeSnowflake))
-        |> JD.andMap (JD.field "attachments" (JD.list decodeAttachment))
-        |> JD.andMap (decodeOptionalData "reactions" (JD.list decodeReaction))
-        |> JD.andMap (JD.field "pinned" JD.bool)
-        |> JD.andMap (decodeOptionalData "webhook_id" decodeSnowflake)
-        |> JD.andMap (JD.field "type" JD.int)
-        |> JD.andMap (decodeOptionalData "flags" JD.int)
-
-
-type alias User =
-    { id : Id UserId
-    , username : String
-    , discriminator : Int
-    , avatar : Maybe String
-    , bot : OptionalData Bool
-    , system : OptionalData Bool
-    , mfaEnabled : OptionalData Bool
-    , locale : OptionalData String
-    , verified : OptionalData Bool
-    , email : OptionalData (Maybe String)
-    , flags : OptionalData Int
-    , premiumType : OptionalData Int
-    , publicFlags : OptionalData Int
-    }
-
-
-decodeUser : JD.Decoder User
-decodeUser =
-    JD.succeed User
-        |> JD.andMap (JD.field "id" decodeSnowflake)
-        |> JD.andMap (JD.field "username" JD.string)
-        |> JD.andMap (JD.field "discriminator" decodeDiscriminator)
-        |> JD.andMap (JD.field "avatar" (JD.nullable JD.string))
-        |> JD.andMap (decodeOptionalData "bot" JD.bool)
-        |> JD.andMap (decodeOptionalData "system" JD.bool)
-        |> JD.andMap (decodeOptionalData "mfaEnabled" JD.bool)
-        |> JD.andMap (decodeOptionalData "locale" JD.string)
-        |> JD.andMap (decodeOptionalData "verified" JD.bool)
-        |> JD.andMap (decodeOptionalData "email" (JD.nullable JD.string))
-        |> JD.andMap (decodeOptionalData "flags" JD.int)
-        |> JD.andMap (decodeOptionalData "premiumType" JD.int)
-        |> JD.andMap (decodeOptionalData "publicFlags" JD.int)
-
-
-type alias Attachment =
-    { id : Id AttachmentId
-    , filename : String
-    , size : Int
-    , url : String
-    , proxyUrl : String
-    , height : Maybe Int
-    , width : Maybe Int
-    }
-
-
-decodeAttachment : JD.Decoder Attachment
-decodeAttachment =
-    JD.succeed Attachment
-        |> JD.andMap (JD.field "id" decodeSnowflake)
-        |> JD.andMap (JD.field "filename" JD.string)
-        |> JD.andMap (JD.field "size" JD.int)
-        |> JD.andMap (JD.field "url" JD.string)
-        |> JD.andMap (JD.field "proxyUrl" JD.string)
-        |> JD.andMap (JD.field "height" (JD.nullable JD.int))
-        |> JD.andMap (JD.field "width" (JD.nullable JD.int))
-
-
-type alias Reaction =
-    { count : Int
-    , me : Bool
-    , emoji : Emoji
-    }
-
-
-type alias Emoji =
-    { id : Id EmojiId
-    , name : Maybe String
-    , roles : List (Id RoleId)
-    , user : OptionalData User
-    , requireColors : OptionalData Bool
-    , managed : OptionalData Bool
-    , animated : OptionalData Bool
-    , available : OptionalData Bool
-    }
-
-
-decodeReaction : JD.Decoder Reaction
-decodeReaction =
-    JD.succeed Reaction
-        |> JD.andMap (JD.field "count" JD.int)
-        |> JD.andMap (JD.field "me" JD.bool)
-        |> JD.andMap (JD.field "emoji" decodeEmoji)
-
-
-decodeEmoji : JD.Decoder Emoji
-decodeEmoji =
-    JD.succeed Emoji
-        |> JD.andMap (JD.field "id" decodeSnowflake)
-        |> JD.andMap (JD.field "name" (JD.nullable JD.string))
-        |> JD.andMap (JD.field "roles" (JD.list decodeSnowflake))
-        |> JD.andMap (decodeOptionalData "user" decodeUser)
-        |> JD.andMap (decodeOptionalData "requireColors" JD.bool)
-        |> JD.andMap (decodeOptionalData "managed" JD.bool)
-        |> JD.andMap (decodeOptionalData "animated" JD.bool)
-        |> JD.andMap (decodeOptionalData "available" JD.bool)
-
-
-type alias PartialGuild =
-    { id : Id GuildId
-    , name : String
-    , icon : Maybe String
-    , owner : Bool
-    , permissions : Permissions
-    }
-
-
-decodePartialGuild : JD.Decoder PartialGuild
-decodePartialGuild =
-    JD.succeed PartialGuild
-        |> JD.andMap (JD.field "id" decodeSnowflake)
-        |> JD.andMap (JD.field "name" JD.string)
-        |> JD.andMap (JD.field "icon" (JD.nullable JD.string))
-        |> JD.andMap (JD.field "owner" JD.bool)
-        |> JD.andMap (JD.field "permissions" decodePermissions)
 
 
 type alias Guild =
@@ -961,6 +663,408 @@ type alias Guild =
     }
 
 
+type alias GuildMember =
+    { user : OptionalData User
+    , nickname : Maybe String
+    , roles : List (Id RoleId)
+    , joinedAt : Time.Posix
+    , premiumSince : OptionalData (Maybe Time.Posix)
+    , deaf : Bool
+    , mute : Bool
+    }
+
+
+type alias PartialGuild =
+    { id : Id GuildId
+    , name : String
+    , icon : Maybe String
+    , owner : Bool
+    , permissions : Permissions
+    }
+
+
+type alias Reaction =
+    { count : Int
+    , me : Bool
+    , emoji : Emoji
+    }
+
+
+type alias Emoji =
+    { id : Id EmojiId
+    , name : Maybe String
+    , roles : List (Id RoleId)
+    , user : OptionalData User
+    , requireColors : OptionalData Bool
+    , managed : OptionalData Bool
+    , animated : OptionalData Bool
+    , available : OptionalData Bool
+    }
+
+
+type Bits
+    = Bits Never
+
+
+type alias Channel =
+    { id : Id ChannelId
+    , type_ : ChannelType
+    , guildId : OptionalData (Id GuildId)
+    , position : OptionalData Int
+
+    -- premission overwrites field excluded
+    , name : OptionalData String
+    , topic : OptionalData (Maybe String)
+    , nsfw : OptionalData Bool
+    , lastMessageId : OptionalData (Maybe (Id MessageId))
+    , bitrate : OptionalData (Quantity Int (Rate Bits Seconds))
+    , userLimit : OptionalData Int
+    , rateLimitPerUser : OptionalData (Quantity Int Seconds)
+    , recipients : OptionalData (List User)
+    , icon : OptionalData (Maybe String)
+    , ownerId : OptionalData (Id UserId)
+    , applicationId : OptionalData (Id ApplicationId)
+    , parentId : OptionalData (Maybe (Id ChannelId))
+    , lastPinTimestamp : OptionalData Time.Posix
+    }
+
+
+type alias PartialChannel =
+    { id : Id ChannelId
+    , name : String
+    , type_ : ChannelType
+    }
+
+
+type ChannelType
+    = GuildText
+    | DirectMessage
+    | GuildVoice
+    | GroupDirectMessage
+    | GuildCategory
+    | GuildNews
+    | GuildStore
+
+
+type alias Invite =
+    { code : InviteCode
+    , guild : OptionalData PartialGuild
+    , channel : PartialChannel
+    , inviter : OptionalData User
+    , targetUser : OptionalData PartialUser
+    , targetUserType : OptionalData Int
+    , approximatePresenceCount : OptionalData Int
+    , approximateMemberCount : OptionalData Int
+    }
+
+
+type alias InviteWithMetadata =
+    { code : InviteCode
+    , guild : OptionalData PartialGuild
+    , channel : PartialChannel
+    , inviter : OptionalData User
+    , targetUser : OptionalData PartialUser
+    , targetUserType : OptionalData Int
+    , approximatePresenceCount : OptionalData Int
+    , approximateMemberCount : OptionalData Int
+    , uses : Int
+    , maxUses : Int
+    , maxAge : Maybe (Quantity Int Seconds)
+    , temporaryMembership : Bool
+    , createdAt : Time.Posix
+    }
+
+
+{-| -maxAge: Duration of invite in before it expires. `Nothing` means it never expires.
+-maxUsers: Max number of uses. `Nothing` means it has unlimited uses.
+-temporaryMembership: Whether this invite only grants temporary membership.
+-unique: If true, don't try to reuse a similar invite (useful for creating many unique one time use invites).
+-targetUser: The target user id for this invite.
+-}
+type alias ChannelInviteConfig =
+    { maxAge : Maybe (Quantity Int Seconds)
+    , maxUses : Maybe Int
+    , temporaryMembership : Bool
+    , unique : Bool
+    , targetUser : Maybe (Id UserId)
+    }
+
+
+type alias Permissions =
+    { createInstantInvite : Bool
+    , kickMembers : Bool
+    , banMembers : Bool
+    , administrator : Bool
+    , manageChannels : Bool
+    , manageGuild : Bool
+    , addReaction : Bool
+    , viewAuditLog : Bool
+    , prioritySpeaker : Bool
+    , stream : Bool
+    , viewChannel : Bool
+    , sendMessages : Bool
+    , sentTextToSpeechMessages : Bool
+    , manageMessages : Bool
+    , embedLinks : Bool
+    , attachFiles : Bool
+    , readMessageHistory : Bool
+    , mentionEveryone : Bool
+    , useExternalEmojis : Bool
+    , viewGuildInsights : Bool
+    , connect : Bool
+    , speak : Bool
+    , muteMembers : Bool
+    , deafenMembers : Bool
+    , moveMembers : Bool
+    , useVoiceActivityDetection : Bool
+    , changeNickname : Bool
+    , manageNicknames : Bool
+    , manageRoles : Bool
+    , manageWebhooks : Bool
+    , manageEmojis : Bool
+    }
+
+
+type alias Attachment =
+    { id : Id AttachmentId
+    , filename : String
+    , size : Int
+    , url : String
+    , proxyUrl : String
+    , height : Maybe Int
+    , width : Maybe Int
+    }
+
+
+type alias User =
+    { id : Id UserId
+    , username : String
+    , discriminator : Int
+    , avatar : Maybe String
+    , bot : OptionalData Bool
+    , system : OptionalData Bool
+    , mfaEnabled : OptionalData Bool
+    , locale : OptionalData String
+    , verified : OptionalData Bool
+    , email : OptionalData (Maybe String)
+    , flags : OptionalData Int
+    , premiumType : OptionalData Int
+    , publicFlags : OptionalData Int
+    }
+
+
+type alias PartialUser =
+    { id : Id UserId
+    , username : String
+    , avatar : Maybe String
+    , discriminator : Int
+    }
+
+
+{-| In Discord's documentation these are called snowflakes. Id is much quicker to write though.
+-}
+type Id idType
+    = Id String
+
+
+type MessageId
+    = MessageId Never
+
+
+type UserId
+    = UserId Never
+
+
+type RoleId
+    = RoleId Never
+
+
+type ChannelId
+    = ChannelId Never
+
+
+type GuildId
+    = GuildId Never
+
+
+type WebhookId
+    = WebhookId Never
+
+
+type AttachmentId
+    = AttachmentId Never
+
+
+type EmojiId
+    = EmojiId Never
+
+
+type ApplicationId
+    = ApplicationId Never
+
+
+type OverwriteId
+    = OverwriteId Never
+
+
+type InviteCode
+    = InviteCode String
+
+
+type alias Message =
+    { id : Id MessageId
+    , channelId : Id ChannelId
+    , guildId : OptionalData (Id GuildId)
+    , author : User
+
+    -- member field is excluded
+    , content : String
+    , timestamp : Time.Posix
+    , editedTimestamp : Maybe Time.Posix
+    , textToSpeech : Bool
+    , mentionEveryone : Bool
+
+    -- mentions field is excluded
+    , mentionRoles : List (Id RoleId)
+
+    -- mention_channels field is excluded
+    , attachments : List Attachment
+
+    -- embeds field is excluded
+    , reactions : OptionalData (List Reaction)
+
+    -- nonce field is excluded
+    , pinned : Bool
+    , webhookId : OptionalData (Id WebhookId)
+    , type_ : Int
+
+    -- activity field is excluded
+    -- application field is excluded
+    -- message_reference field is excluded
+    , flags : OptionalData Int
+    }
+
+
+{-| -}
+type MessagesRelativeTo
+    = Around (Id MessageId)
+    | Before (Id MessageId)
+    | After (Id MessageId)
+    | MostRecent
+
+
+
+--- DECODERS ---
+
+
+decodeGuildMember : JD.Decoder GuildMember
+decodeGuildMember =
+    JD.succeed GuildMember
+        |> JD.andMap (decodeOptionalData "user" decodeUser)
+        |> JD.andMap (JD.field "nick" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "roles" (JD.list decodeSnowflake))
+        |> JD.andMap (JD.field "joined_at" Iso8601.decoder)
+        |> JD.andMap (decodeOptionalData "premium_since" (JD.nullable Iso8601.decoder))
+        |> JD.andMap (JD.field "deaf" JD.bool)
+        |> JD.andMap (JD.field "mute" JD.bool)
+
+
+decodeOptionalData : String -> JD.Decoder a -> JD.Decoder (OptionalData a)
+decodeOptionalData field decoder =
+    JD.oneOf
+        [ JD.field field decoder |> JD.map Included
+        , JD.field field (JD.fail ("Incorrect data for field: " ++ field))
+        , JD.succeed Missing
+        ]
+
+
+decodeSnowflake : JD.Decoder (Id idType)
+decodeSnowflake =
+    JD.map Id JD.string
+
+
+decodeMessage : JD.Decoder Message
+decodeMessage =
+    JD.succeed Message
+        |> JD.andMap (JD.field "id" decodeSnowflake)
+        |> JD.andMap (JD.field "channel_id" decodeSnowflake)
+        |> JD.andMap (decodeOptionalData "guild_id" decodeSnowflake)
+        |> JD.andMap (JD.field "author" decodeUser)
+        |> JD.andMap (JD.field "content" JD.string)
+        |> JD.andMap (JD.field "timestamp" Iso8601.decoder)
+        |> JD.andMap (JD.field "edited_timestamp" (JD.nullable Iso8601.decoder))
+        |> JD.andMap (JD.field "tts" JD.bool)
+        |> JD.andMap (JD.field "mention_everyone" JD.bool)
+        |> JD.andMap (JD.field "mention_roles" (JD.list decodeSnowflake))
+        |> JD.andMap (JD.field "attachments" (JD.list decodeAttachment))
+        |> JD.andMap (decodeOptionalData "reactions" (JD.list decodeReaction))
+        |> JD.andMap (JD.field "pinned" JD.bool)
+        |> JD.andMap (decodeOptionalData "webhook_id" decodeSnowflake)
+        |> JD.andMap (JD.field "type" JD.int)
+        |> JD.andMap (decodeOptionalData "flags" JD.int)
+
+
+decodeUser : JD.Decoder User
+decodeUser =
+    JD.succeed User
+        |> JD.andMap (JD.field "id" decodeSnowflake)
+        |> JD.andMap (JD.field "username" JD.string)
+        |> JD.andMap (JD.field "discriminator" decodeDiscriminator)
+        |> JD.andMap (JD.field "avatar" (JD.nullable JD.string))
+        |> JD.andMap (decodeOptionalData "bot" JD.bool)
+        |> JD.andMap (decodeOptionalData "system" JD.bool)
+        |> JD.andMap (decodeOptionalData "mfaEnabled" JD.bool)
+        |> JD.andMap (decodeOptionalData "locale" JD.string)
+        |> JD.andMap (decodeOptionalData "verified" JD.bool)
+        |> JD.andMap (decodeOptionalData "email" (JD.nullable JD.string))
+        |> JD.andMap (decodeOptionalData "flags" JD.int)
+        |> JD.andMap (decodeOptionalData "premiumType" JD.int)
+        |> JD.andMap (decodeOptionalData "publicFlags" JD.int)
+
+
+decodeAttachment : JD.Decoder Attachment
+decodeAttachment =
+    JD.succeed Attachment
+        |> JD.andMap (JD.field "id" decodeSnowflake)
+        |> JD.andMap (JD.field "filename" JD.string)
+        |> JD.andMap (JD.field "size" JD.int)
+        |> JD.andMap (JD.field "url" JD.string)
+        |> JD.andMap (JD.field "proxyUrl" JD.string)
+        |> JD.andMap (JD.field "height" (JD.nullable JD.int))
+        |> JD.andMap (JD.field "width" (JD.nullable JD.int))
+
+
+decodeReaction : JD.Decoder Reaction
+decodeReaction =
+    JD.succeed Reaction
+        |> JD.andMap (JD.field "count" JD.int)
+        |> JD.andMap (JD.field "me" JD.bool)
+        |> JD.andMap (JD.field "emoji" decodeEmoji)
+
+
+decodeEmoji : JD.Decoder Emoji
+decodeEmoji =
+    JD.succeed Emoji
+        |> JD.andMap (JD.field "id" decodeSnowflake)
+        |> JD.andMap (JD.field "name" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "roles" (JD.list decodeSnowflake))
+        |> JD.andMap (decodeOptionalData "user" decodeUser)
+        |> JD.andMap (decodeOptionalData "requireColors" JD.bool)
+        |> JD.andMap (decodeOptionalData "managed" JD.bool)
+        |> JD.andMap (decodeOptionalData "animated" JD.bool)
+        |> JD.andMap (decodeOptionalData "available" JD.bool)
+
+
+decodePartialGuild : JD.Decoder PartialGuild
+decodePartialGuild =
+    JD.succeed PartialGuild
+        |> JD.andMap (JD.field "id" decodeSnowflake)
+        |> JD.andMap (JD.field "name" JD.string)
+        |> JD.andMap (JD.field "icon" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "owner" JD.bool)
+        |> JD.andMap (JD.field "permissions" decodePermissions)
+
+
 decodeGuild : JD.Decoder Guild
 decodeGuild =
     JD.succeed Guild
@@ -1006,41 +1110,6 @@ decodeGuild =
         |> JD.andMap (JD.field "public_updates_channel_id" (JD.nullable decodeSnowflake))
         |> JD.andMap (decodeOptionalData "approximate_member_count" JD.int)
         |> JD.andMap (decodeOptionalData "approximate_presence_count" JD.int)
-
-
-type alias Permissions =
-    { createInstantInvite : Bool
-    , kickMembers : Bool
-    , banMembers : Bool
-    , administrator : Bool
-    , manageChannels : Bool
-    , manageGuild : Bool
-    , addReaction : Bool
-    , viewAuditLog : Bool
-    , prioritySpeaker : Bool
-    , stream : Bool
-    , viewChannel : Bool
-    , sendMessages : Bool
-    , sentTextToSpeechMessages : Bool
-    , manageMessages : Bool
-    , embedLinks : Bool
-    , attachFiles : Bool
-    , readMessageHistory : Bool
-    , mentionEveryone : Bool
-    , useExternalEmojis : Bool
-    , viewGuildInsights : Bool
-    , connect : Bool
-    , speak : Bool
-    , muteMembers : Bool
-    , deafenMembers : Bool
-    , moveMembers : Bool
-    , useVoiceActivityDetection : Bool
-    , changeNickname : Bool
-    , manageNicknames : Bool
-    , manageRoles : Bool
-    , manageWebhooks : Bool
-    , manageEmojis : Bool
-    }
 
 
 decodePermissions : JD.Decoder Permissions
@@ -1090,33 +1159,6 @@ decodePermissions =
         JD.int
 
 
-type Bits
-    = Bits Never
-
-
-type alias Channel =
-    { id : Id ChannelId
-    , type_ : ChannelType
-    , guildId : OptionalData (Id GuildId)
-    , position : OptionalData Int
-
-    -- premission overwrites field excluded
-    , name : OptionalData String
-    , topic : OptionalData (Maybe String)
-    , nsfw : OptionalData Bool
-    , lastMessageId : OptionalData (Maybe (Id MessageId))
-    , bitrate : OptionalData (Quantity Int (Rate Bits Seconds))
-    , userLimit : OptionalData Int
-    , rateLimitPerUser : OptionalData (Quantity Int Seconds)
-    , recipients : OptionalData (List User)
-    , icon : OptionalData (Maybe String)
-    , ownerId : OptionalData (Id UserId)
-    , applicationId : OptionalData (Id ApplicationId)
-    , parentId : OptionalData (Maybe (Id ChannelId))
-    , lastPinTimestamp : OptionalData Time.Posix
-    }
-
-
 decodeChannel : JD.Decoder Channel
 decodeChannel =
     JD.succeed Channel
@@ -1137,16 +1179,6 @@ decodeChannel =
         |> JD.andMap (decodeOptionalData "application_id" decodeSnowflake)
         |> JD.andMap (decodeOptionalData "parent_id" (JD.nullable decodeSnowflake))
         |> JD.andMap (decodeOptionalData "last_pin_timestamp" Iso8601.decoder)
-
-
-type ChannelType
-    = GuildText
-    | DirectMessage
-    | GuildVoice
-    | GroupDirectMessage
-    | GuildCategory
-    | GuildNews
-    | GuildStore
 
 
 decodeChannelType : JD.Decoder ChannelType
@@ -1179,3 +1211,82 @@ decodeChannelType =
                     JD.fail "Invalid channel type."
         )
         JD.int
+
+
+decodeInviteCode : JD.Decoder InviteCode
+decodeInviteCode =
+    JD.map InviteCode JD.string
+
+
+decodeInvite : JD.Decoder Invite
+decodeInvite =
+    JD.map8 Invite
+        (JD.field "code" decodeInviteCode)
+        (decodeOptionalData "guild" decodePartialGuild)
+        (JD.field "channel" decodePartialChannel)
+        (decodeOptionalData "inviter" decodeUser)
+        (decodeOptionalData "target_user" decodePartialUser)
+        (decodeOptionalData "target_user_type" JD.int)
+        (decodeOptionalData "approximate_presence_count" JD.int)
+        (decodeOptionalData "approximate_member_count" JD.int)
+
+
+decodeInviteWithMetadata : JD.Decoder InviteWithMetadata
+decodeInviteWithMetadata =
+    JD.succeed InviteWithMetadata
+        |> JD.andMap (JD.field "code" decodeInviteCode)
+        |> JD.andMap (decodeOptionalData "guild" decodePartialGuild)
+        |> JD.andMap (JD.field "channel" decodePartialChannel)
+        |> JD.andMap (decodeOptionalData "inviter" decodeUser)
+        |> JD.andMap (decodeOptionalData "target_user" decodePartialUser)
+        |> JD.andMap (decodeOptionalData "target_user_type" JD.int)
+        |> JD.andMap (decodeOptionalData "approximate_presence_count" JD.int)
+        |> JD.andMap (decodeOptionalData "approximate_member_count" JD.int)
+        |> JD.andMap (JD.field "uses" JD.int)
+        |> JD.andMap (JD.field "max_uses" JD.int)
+        |> JD.andMap
+            (JD.field "max_age"
+                (JD.map
+                    (\value ->
+                        if value == 0 then
+                            Nothing
+
+                        else
+                            Just (Quantity value)
+                    )
+                    JD.int
+                )
+            )
+        |> JD.andMap (JD.field "temporary" JD.bool)
+        |> JD.andMap (JD.field "created_at" Iso8601.decoder)
+
+
+decodePartialChannel : JD.Decoder PartialChannel
+decodePartialChannel =
+    JD.map3 PartialChannel
+        (JD.field "id" decodeSnowflake)
+        (JD.field "name" JD.string)
+        (JD.field "type" decodeChannelType)
+
+
+decodePartialUser : JD.Decoder PartialUser
+decodePartialUser =
+    JD.map4 PartialUser
+        (JD.field "id" decodeSnowflake)
+        (JD.field "username" JD.string)
+        (JD.field "avatar" (JD.nullable JD.string))
+        (JD.field "discriminator" decodeDiscriminator)
+
+
+decodeDiscriminator : JD.Decoder Int
+decodeDiscriminator =
+    JD.andThen
+        (\text ->
+            case String.toInt text of
+                Just value ->
+                    JD.succeed value
+
+                Nothing ->
+                    JD.fail "Invalid discriminator"
+        )
+        JD.string
