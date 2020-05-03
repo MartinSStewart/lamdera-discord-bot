@@ -350,12 +350,11 @@ Only usable for guild channels. Requires the `MANAGE_CHANNELS` permission.
 -}
 getChannelInvites : Authentication -> Id ChannelId -> Task String (List InviteWithMetadata)
 getChannelInvites authentication channelId =
-    httpDelete
+    httpGet
         authentication
         (JD.list decodeInviteWithMetadata)
         [ "channels", rawId channelId, "invites" ]
         []
-        (JE.object [])
 
 
 {-| -maxAge: Duration of invite in before it expires. `Nothing` means it never expires.
@@ -392,18 +391,45 @@ createChannelInvite :
     Authentication
     -> Id ChannelId
     -> ChannelInviteConfig
-    -> Task String ()
+    -> Task String Invite
 createChannelInvite authentication channelId { maxAge, maxUses, temporaryMembership, unique, targetUser } =
-    httpDelete
+    httpPost
         authentication
-        (JD.succeed ())
+        decodeInvite
         [ "channels", rawId channelId, "invites" ]
         []
-        (JE.object [])
+        (JE.object
+            (( "max_age"
+             , case maxAge of
+                Just (Quantity maxAge_) ->
+                    max 1 maxAge_ |> JE.int
+
+                Nothing ->
+                    JE.int 0
+             )
+                :: ( "max_uses"
+                   , case maxUses of
+                        Just maxUses_ ->
+                            max 1 maxUses_ |> JE.int
+
+                        Nothing ->
+                            JE.int 0
+                   )
+                :: ( "temporary", JE.bool temporaryMembership )
+                :: ( "unique", JE.bool unique )
+                :: (case targetUser of
+                        Just (Id targetUserId) ->
+                            [ ( "target_user", JE.string targetUserId ) ]
+
+                        Nothing ->
+                            []
+                   )
+            )
+        )
 
 
 type alias Invite =
-    { code : Id InviteId
+    { code : InviteCode
     , guild : OptionalData PartialGuild
     , channel : PartialChannel
     , inviter : OptionalData User
@@ -415,7 +441,7 @@ type alias Invite =
 
 
 type alias InviteWithMetadata =
-    { code : Id InviteId
+    { code : InviteCode
     , guild : OptionalData PartialGuild
     , channel : PartialChannel
     , inviter : OptionalData User
@@ -431,10 +457,15 @@ type alias InviteWithMetadata =
     }
 
 
+decodeInviteCode : JD.Decoder InviteCode
+decodeInviteCode =
+    JD.map InviteCode JD.string
+
+
 decodeInvite : JD.Decoder Invite
 decodeInvite =
     JD.map8 Invite
-        (JD.field "code" decodeSnowflake)
+        (JD.field "code" decodeInviteCode)
         (decodeOptionalData "guild" decodePartialGuild)
         (JD.field "channel" decodePartialChannel)
         (decodeOptionalData "inviter" decodeUser)
@@ -447,7 +478,7 @@ decodeInvite =
 decodeInviteWithMetadata : JD.Decoder InviteWithMetadata
 decodeInviteWithMetadata =
     JD.succeed InviteWithMetadata
-        |> JD.andMap (JD.field "code" decodeSnowflake)
+        |> JD.andMap (JD.field "code" decodeInviteCode)
         |> JD.andMap (decodeOptionalData "guild" decodePartialGuild)
         |> JD.andMap (JD.field "channel" decodePartialChannel)
         |> JD.andMap (decodeOptionalData "inviter" decodeUser)
@@ -697,8 +728,8 @@ type ApplicationId
     = ApplicationId Never
 
 
-type InviteId
-    = InviteId Never
+type InviteCode
+    = InviteCode String
 
 
 type alias Message =
