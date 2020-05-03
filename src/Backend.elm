@@ -205,6 +205,4 @@ waveReaction : Discord.Id Discord.MessageId -> Task String ()
 waveReaction messageId =
     Discord.createReaction
         Environment.botToken
-        Environment.channelId
-        messageId
-        "👋"
+        { channelId = Environment.channelId, messageId = messageId, emoji = "👋" }

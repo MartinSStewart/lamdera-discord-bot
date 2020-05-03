@@ -1,10 +1,12 @@
 module Discord exposing
     ( Authentication, botToken
-    , getChannel, getMessages, MessagesRelativeTo(..), createMessage, createReaction, Channel, ChannelId, Message, MessageId, Reaction, Attachment, AttachmentId
+    , getChannel, getMessages, MessagesRelativeTo(..), createMessage, getReactions, createReaction, deleteOwnReaction, deleteUserReaction, deleteAllReactions, deleteAllReactionsForEmoji, deleteMessage, bulkDeleteMessage, Channel, PartialChannel, ChannelId, Message, MessageId, Reaction, Attachment, AttachmentId
     , Emoji, EmojiId
     , getUsers, Guild, GuildId, GuildMember, RoleId, PartialGuild
-    , getCurrentUser, getCurrentUserGuilds, User, UserId, Permissions
-    , Id(..), OptionalData(..), WebhookId
+    , Invite, InviteWithMetadata
+    , getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
+    , WebhookId
+    , ChannelInviteConfig, Id(..), OptionalData(..), createChannelInvite, defaultChannelInviteConfig, editMessage, getChannelInvites
     )
 
 {-| The beginnings of an Elm package...
@@ -24,9 +26,12 @@ For that reason it's probably a good idea to have a look at the source code and 
 @docs Authentication, botToken
 
 
+# Audit Log
+
+
 # Channel
 
-@docs getChannel, getMessages, MessagesRelativeTo, createMessage, createReaction, Channel, ChannelId, Message, MessageId, Reaction, Attachment, AttachmentId
+@docs getChannel, getMessages, MessagesRelativeTo, createMessage, getReactions, createReaction, deleteOwnReaction, deleteUserReaction, deleteAllReactions, deleteAllReactionsForEmoji, deleteMessage, bulkDeleteMessage, Channel, PartialChannel, ChannelId, Message, MessageId, Reaction, Attachment, AttachmentId
 
 
 # Emoji
@@ -39,9 +44,22 @@ For that reason it's probably a good idea to have a look at the source code and 
 @docs getUsers, Guild, GuildId, GuildMember, RoleId, PartialGuild
 
 
+# Invite
+
+@docs Invite, InviteWithMetadata
+
+
 # User
 
-@docs getCurrentUser, getCurrentUserGuilds, User, UserId, Permissions
+@docs getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
+
+
+# Voice
+
+
+# Webhook
+
+@docs WebhookId
 
 -}
 
@@ -70,31 +88,47 @@ botToken botTokenText =
 
 -}
 getUsers : Authentication -> { guildId : Id GuildId, limit : Int, after : Maybe (Id UserId) } -> Task String (List GuildMember)
-getUsers botToken_ { guildId, limit, after } =
+getUsers authentication { guildId, limit, after } =
     httpGet
-        botToken_
+        authentication
         (JD.list decodeGuildMember)
-        (buildUrl
-            [ "guilds", rawId guildId, "members" ]
-            (Url.Builder.int "limit" limit
-                :: (case after of
-                        Just (Id after_) ->
-                            [ Url.Builder.string "after" after_ ]
+        [ "guilds", rawId guildId, "members" ]
+        (Url.Builder.int "limit" limit
+            :: (case after of
+                    Just (Id after_) ->
+                        [ Url.Builder.string "after" after_ ]
 
-                        Nothing ->
-                            []
-                   )
-            )
+                    Nothing ->
+                        []
+               )
         )
 
 
-createMessage : Authentication -> Id ChannelId -> String -> Task String ()
-createMessage botToken_ channelId content =
-    httpPost
-        botToken_
-        (JD.succeed ())
-        (buildUrl [ "channels", rawId channelId, "messages" ] [])
-        (JE.object [ ( "content", JE.string content ) ])
+getChannel : Authentication -> Id ChannelId -> Task String Channel
+getChannel authentication (Id channelId) =
+    httpGet authentication decodeChannel [ "channels", channelId ] []
+
+
+
+-- Modify channel excluded
+
+
+{-| Delete a channel, or close a private message.
+Requires the `MANAGE_CHANNELS` permission for the guild.
+Deleting a category does not delete its child channels; they will have their `parent_id` removed and a Channel Update Gateway event will fire for each of them.
+Returns a channel object on success.
+Fires a Channel Delete Gateway event.
+
+Deleting a guild channel cannot be undone.
+Use this with caution, as it is impossible to undo this action when performed on a guild channel.
+In contrast, when used with a private message, it is possible to undo the action by opening a private message with the recipient again.
+
+For Public servers, the set Rules or Guidelines channel and the Moderators-only (Public Server Updates) channel cannot be deleted.
+
+-}
+deleteChannel : Authentication -> Id ChannelId -> Task String Channel
+deleteChannel authentication (Id channelId) =
+    httpDelete authentication decodeChannel [ "channels", channelId ] [] (JE.string "")
 
 
 {-| -}
@@ -116,70 +150,397 @@ If the current user is missing the `READ_MESSAGE_HISTORY` permission in the chan
 
 -}
 getMessages : Authentication -> { channelId : Id ChannelId, limit : Int, relativeTo : MessagesRelativeTo } -> Task String (List Message)
-getMessages botToken_ { channelId, limit, relativeTo } =
+getMessages authentication { channelId, limit, relativeTo } =
     httpGet
-        botToken_
+        authentication
         (JD.list decodeMessage)
-        (buildUrl
-            [ "channels", rawId channelId, "messages" ]
-            (Url.Builder.int "limit" limit
-                :: (case relativeTo of
-                        Around (Id messageId) ->
-                            [ Url.Builder.string "around" messageId ]
+        [ "channels", rawId channelId, "messages" ]
+        (Url.Builder.int "limit" limit
+            :: (case relativeTo of
+                    Around (Id messageId) ->
+                        [ Url.Builder.string "around" messageId ]
 
-                        Before (Id messageId) ->
-                            [ Url.Builder.string "around" messageId ]
+                    Before (Id messageId) ->
+                        [ Url.Builder.string "around" messageId ]
 
-                        After (Id messageId) ->
-                            [ Url.Builder.string "around" messageId ]
+                    After (Id messageId) ->
+                        [ Url.Builder.string "around" messageId ]
 
-                        MostRecent ->
-                            []
-                   )
-            )
+                    MostRecent ->
+                        []
+               )
         )
 
 
-getChannel : Authentication -> Id ChannelId -> Task String Channel
-getChannel botToken_ (Id channelId) =
-    httpGet botToken_ decodeChannel (buildUrl [ "channels", channelId ] [])
+{-| Returns a specific message in the channel.
+If operating on a guild channel, this endpoint requires the `READ_MESSAGE_HISTORY` permission to be present on the current user.
+-}
+getMessage : Authentication -> { channelId : Id ChannelId, messageId : Id MessageId } -> Task String (List Message)
+getMessage authentication { channelId, messageId } =
+    httpGet
+        authentication
+        (JD.list decodeMessage)
+        [ "channels", rawId channelId, "messages", rawId messageId ]
+        []
 
 
-createReaction : Authentication -> Id ChannelId -> Id MessageId -> String -> Task String ()
-createReaction botToken_ channelId messageId emoji =
-    httpPut botToken_
+{-| Before using this endpoint, you must connect to and identify with a gateway at least once.
+
+Discord may strip certain characters from message content, like invalid unicode characters or characters which cause unexpected message formatting.
+If you are passing user-generated strings into message content, consider sanitizing the data to prevent unexpected behavior and utilizing `allowed_mentions` to prevent unexpected mentions.
+
+Post a message to a guild text or DM channel.
+If operating on a guild channel, this endpoint requires the `SEND_MESSAGES` permission to be present on the current user.
+If the tts field is set to true, the `SEND_TTS_MESSAGES` permission is required for the message to be spoken.
+Returns a message object. Fires a Message Create Gateway event.
+See message formatting for more information on how to properly format messages.
+
+The maximum request size when sending a message is 8MB.
+
+-}
+createMessage : Authentication -> { channelId : Id ChannelId, content : String } -> Task String ()
+createMessage authentication { channelId, content } =
+    httpPost
+        authentication
         (JD.succeed ())
-        (buildUrl
-            [ "channels", rawId channelId, "messages", rawId messageId, "reactions", emoji, "@me" ]
-            []
-        )
+        [ "channels", rawId channelId, "messages" ]
+        []
+        (JE.object [ ( "content", JE.string content ) ])
+
+
+{-| Create a reaction for the message.
+This endpoint requires the `READ_MESSAGE_HISTORY` permission to be present on the current user.
+Additionally, if nobody else has reacted to the message using this emoji, this endpoint requires the `ADD_REACTIONS` permission to be present on the current user.
+-}
+createReaction : Authentication -> { channelId : Id ChannelId, messageId : Id MessageId, emoji : String } -> Task String ()
+createReaction authentication { channelId, messageId, emoji } =
+    httpPut
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "messages", rawId messageId, "reactions", emoji, "@me" ]
+        []
         (JE.object [])
 
 
-getCurrentUser : Authentication -> Task String User
-getCurrentUser botToken_ =
+{-| Delete a reaction the current user has made for the message.
+-}
+deleteOwnReaction : Authentication -> { channelId : Id ChannelId, messageId : Id MessageId, emoji : String } -> Task String ()
+deleteOwnReaction authentication { channelId, messageId, emoji } =
+    httpDelete
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "messages", rawId messageId, "reactions", emoji, "@me" ]
+        []
+        (JE.object [])
+
+
+{-| Deletes another user's reaction.
+This endpoint requires the `MANAGE_MESSAGES` permission to be present on the current user.
+-}
+deleteUserReaction :
+    Authentication
+    -> { channelId : Id ChannelId, messageId : Id MessageId, emoji : String, userId : Id UserId }
+    -> Task String ()
+deleteUserReaction authentication { channelId, messageId, emoji, userId } =
+    httpDelete
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "messages", rawId messageId, "reactions", emoji, rawId userId ]
+        []
+        (JE.object [])
+
+
+{-| Get a list of users that reacted with this emoji.
+-}
+getReactions : Authentication -> { channelId : Id ChannelId, messageId : Id MessageId, emoji : String } -> Task String ()
+getReactions authentication { channelId, messageId, emoji } =
     httpGet
-        botToken_
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "messages", rawId messageId, "reactions", emoji ]
+        [ Url.Builder.int "limit" 100 ]
+
+
+{-| Deletes all reactions on a message.
+This endpoint requires the `MANAGE_MESSAGES` permission to be present on the current user.
+-}
+deleteAllReactions : Authentication -> { channelId : Id ChannelId, messageId : Id MessageId } -> Task String ()
+deleteAllReactions authentication { channelId, messageId } =
+    httpDelete
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "messages", rawId messageId, "reactions" ]
+        []
+        (JE.object [])
+
+
+{-| Deletes all the reactions for a given emoji on a message.
+This endpoint requires the `MANAGE_MESSAGES` permission to be present on the current user.
+-}
+deleteAllReactionsForEmoji :
+    Authentication
+    -> { channelId : Id ChannelId, messageId : Id MessageId, emoji : String }
+    -> Task String ()
+deleteAllReactionsForEmoji authentication { channelId, messageId, emoji } =
+    httpDelete
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "messages", rawId messageId, "reactions", emoji ]
+        []
+        (JE.object [])
+
+
+{-| Edit a previously sent message. The fields content can only be edited by the original message author.
+The content field can have a maximum of 2000 characters.
+-}
+editMessage : Authentication -> { channelId : Id ChannelId, messageId : Id MessageId, content : String } -> Task String ()
+editMessage authentication { channelId, messageId, content } =
+    httpPatch
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "messages", rawId messageId ]
+        [ Url.Builder.string "content" content ]
+        (JE.object [])
+
+
+{-| Delete a message.
+If operating on a guild channel and trying to delete a message that was not sent by the current user, this endpoint requires the `MANAGE_MESSAGES` permission.
+-}
+deleteMessage : Authentication -> { channelId : Id ChannelId, messageId : Id MessageId } -> Task String ()
+deleteMessage authentication { channelId, messageId } =
+    httpDelete
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "messages", rawId messageId ]
+        []
+        (JE.object [])
+
+
+{-| Delete multiple messages in a single request.
+This endpoint can only be used on guild channels and requires the `MANAGE_MESSAGES` permission.
+Any message IDs given that do not exist or are invalid will count towards the minimum and maximum message count (currently 2 and 100 respectively).
+
+This endpoint will not delete messages older than 2 weeks, and will fail with a 400 BAD REQUEST if any message provided is older than that or if any duplicate message IDs are provided.
+
+-}
+bulkDeleteMessage :
+    Authentication
+    ->
+        { channelId : Id ChannelId
+        , firstMessage : Id MessageId
+        , secondMessage : Id MessageId
+        , restOfMessages : List (Id MessageId)
+        }
+    -> Task String ()
+bulkDeleteMessage authentication { channelId, firstMessage, secondMessage, restOfMessages } =
+    httpDelete
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "messages", "bulk-delete" ]
+        []
+        (JE.list JE.string (rawId firstMessage :: rawId secondMessage :: List.map rawId restOfMessages))
+
+
+
+-- Edit Channel Permissions excluded
+
+
+{-| Returns a list of invites for the channel.
+Only usable for guild channels. Requires the `MANAGE_CHANNELS` permission.
+-}
+getChannelInvites : Authentication -> Id ChannelId -> Task String (List InviteWithMetadata)
+getChannelInvites authentication channelId =
+    httpDelete
+        authentication
+        (JD.list decodeInviteWithMetadata)
+        [ "channels", rawId channelId, "invites" ]
+        []
+        (JE.object [])
+
+
+{-| -maxAge: Duration of invite in before it expires. `Nothing` means it never expires.
+-maxUsers: Max number of uses. `Nothing` means it has unlimited uses.
+-temporaryMembership: Whether this invite only grants temporary membership.
+-unique: If true, don't try to reuse a similar invite (useful for creating many unique one time use invites).
+-targetUser: The target user id for this invite.
+-}
+type alias ChannelInviteConfig =
+    { maxAge : Maybe (Quantity Int Seconds)
+    , maxUses : Maybe Int
+    , temporaryMembership : Bool
+    , unique : Bool
+    , targetUser : Maybe (Id UserId)
+    }
+
+
+{-| Default invite settings. Can be used an unlimited number of times but expires after 1 day.
+-}
+defaultChannelInviteConfig : ChannelInviteConfig
+defaultChannelInviteConfig =
+    { maxAge = Just (Quantity.round Duration.day)
+    , maxUses = Nothing
+    , temporaryMembership = False
+    , unique = False
+    , targetUser = Nothing
+    }
+
+
+{-| Create a new invite object for the channel. Only usable for guild channels.
+Requires the `CREATE_INSTANT_INVITE` permission.
+-}
+createChannelInvite :
+    Authentication
+    -> Id ChannelId
+    -> ChannelInviteConfig
+    -> Task String ()
+createChannelInvite authentication channelId { maxAge, maxUses, temporaryMembership, unique, targetUser } =
+    httpDelete
+        authentication
+        (JD.succeed ())
+        [ "channels", rawId channelId, "invites" ]
+        []
+        (JE.object [])
+
+
+type alias Invite =
+    { code : Id InviteId
+    , guild : OptionalData PartialGuild
+    , channel : PartialChannel
+    , inviter : OptionalData User
+    , targetUser : OptionalData PartialUser
+    , targetUserType : OptionalData Int
+    , approximatePresenceCount : OptionalData Int
+    , approximateMemberCount : OptionalData Int
+    }
+
+
+type alias InviteWithMetadata =
+    { code : Id InviteId
+    , guild : OptionalData PartialGuild
+    , channel : PartialChannel
+    , inviter : OptionalData User
+    , targetUser : OptionalData PartialUser
+    , targetUserType : OptionalData Int
+    , approximatePresenceCount : OptionalData Int
+    , approximateMemberCount : OptionalData Int
+    , uses : Int
+    , maxUses : Int
+    , maxAge : Maybe (Quantity Int Seconds)
+    , temporaryMembership : Bool
+    , createdAt : Time.Posix
+    }
+
+
+decodeInvite : JD.Decoder Invite
+decodeInvite =
+    JD.map8 Invite
+        (JD.field "code" decodeSnowflake)
+        (decodeOptionalData "guild" decodePartialGuild)
+        (JD.field "channel" decodePartialChannel)
+        (decodeOptionalData "inviter" decodeUser)
+        (decodeOptionalData "target_user" decodePartialUser)
+        (decodeOptionalData "target_user_type" JD.int)
+        (decodeOptionalData "approximate_presence_count" JD.int)
+        (decodeOptionalData "approximate_member_count" JD.int)
+
+
+decodeInviteWithMetadata : JD.Decoder InviteWithMetadata
+decodeInviteWithMetadata =
+    JD.succeed InviteWithMetadata
+        |> JD.andMap (JD.field "code" decodeSnowflake)
+        |> JD.andMap (decodeOptionalData "guild" decodePartialGuild)
+        |> JD.andMap (JD.field "channel" decodePartialChannel)
+        |> JD.andMap (decodeOptionalData "inviter" decodeUser)
+        |> JD.andMap (decodeOptionalData "target_user" decodePartialUser)
+        |> JD.andMap (decodeOptionalData "target_user_type" JD.int)
+        |> JD.andMap (decodeOptionalData "approximate_presence_count" JD.int)
+        |> JD.andMap (decodeOptionalData "approximate_member_count" JD.int)
+        |> JD.andMap (JD.field "uses" JD.int)
+        |> JD.andMap (JD.field "max_uses" JD.int)
+        |> JD.andMap
+            (JD.field "max_age"
+                (JD.map
+                    (\value ->
+                        if value == 0 then
+                            Nothing
+
+                        else
+                            Just (Quantity value)
+                    )
+                    JD.int
+                )
+            )
+        |> JD.andMap (JD.field "temporary" JD.bool)
+        |> JD.andMap (JD.field "created_at" Iso8601.decoder)
+
+
+type alias PartialChannel =
+    { id : Id ChannelId
+    , name : String
+    , type_ : ChannelType
+    }
+
+
+decodePartialChannel : JD.Decoder PartialChannel
+decodePartialChannel =
+    JD.map3 PartialChannel
+        (JD.field "id" decodeSnowflake)
+        (JD.field "name" JD.string)
+        (JD.field "type" decodeChannelType)
+
+
+type alias PartialUser =
+    { id : Id UserId
+    , username : String
+    , avatar : Maybe String
+    , discriminator : Int
+    }
+
+
+decodePartialUser : JD.Decoder PartialUser
+decodePartialUser =
+    JD.map4 PartialUser
+        (JD.field "id" decodeSnowflake)
+        (JD.field "username" JD.string)
+        (JD.field "avatar" (JD.nullable JD.string))
+        (JD.field "discriminator" decodeDiscriminator)
+
+
+decodeDiscriminator : JD.Decoder Int
+decodeDiscriminator =
+    JD.andThen
+        (\text ->
+            case String.toInt text of
+                Just value ->
+                    JD.succeed value
+
+                Nothing ->
+                    JD.fail "Invalid discriminator"
+        )
+        JD.string
+
+
+getCurrentUser : Authentication -> Task String User
+getCurrentUser authentication =
+    httpGet
+        authentication
         decodeUser
-        (buildUrl [ "users", "@me" ] [])
+        [ "users", "@me" ]
+        []
 
 
 getCurrentUserGuilds : Authentication -> Task String (List PartialGuild)
-getCurrentUserGuilds botToken_ =
+getCurrentUserGuilds authentication =
     httpGet
-        botToken_
+        authentication
         (JD.list decodePartialGuild)
-        (buildUrl [ "users", "@me", "guilds" ] [])
+        [ "users", "@me", "guilds" ]
+        []
 
 
 discordApiUrl : String
 discordApiUrl =
     "https://discordapp.com/api/"
-
-
-buildUrl : List String -> List QueryParameter -> String
-buildUrl =
-    Url.Builder.crossOrigin discordApiUrl
 
 
 type Authentication
@@ -192,42 +553,43 @@ rawId (Id id) =
 
 
 authorization : Authentication -> Http.Header
-authorization (BotToken botToken_) =
-    Http.header "Authorization" ("Bot " ++ botToken_)
+authorization (BotToken authentication) =
+    Http.header "Authorization" ("Bot " ++ authentication)
 
 
-httpPost : Authentication -> JD.Decoder a -> String -> JE.Value -> Task String a
-httpPost botToken_ decoder url body =
+httpPost : Authentication -> JD.Decoder a -> List String -> List QueryParameter -> JE.Value -> Task String a
+httpPost authentication decoder path queryParameters body =
+    http authentication "POST" decoder path queryParameters (Http.jsonBody body)
+
+
+httpPut : Authentication -> JD.Decoder a -> List String -> List QueryParameter -> JE.Value -> Task String a
+httpPut authentication decoder path queryParameters body =
+    http authentication "PUT" decoder path queryParameters (Http.jsonBody body)
+
+
+httpPatch : Authentication -> JD.Decoder a -> List String -> List QueryParameter -> JE.Value -> Task String a
+httpPatch authentication decoder path queryParameters body =
+    http authentication "DELETE" decoder path queryParameters (Http.jsonBody body)
+
+
+httpDelete : Authentication -> JD.Decoder a -> List String -> List QueryParameter -> JE.Value -> Task String a
+httpDelete authentication decoder path queryParameters body =
+    http authentication "DELETE" decoder path queryParameters (Http.jsonBody body)
+
+
+httpGet : Authentication -> JD.Decoder a -> List String -> List QueryParameter -> Task String a
+httpGet authentication decoder path queryParameters =
+    http authentication "GET" decoder path queryParameters Http.emptyBody
+
+
+http : Authentication -> String -> JD.Decoder a -> List String -> List QueryParameter -> Http.Body -> Task String a
+http authentication requestType decoder path queryParameters body =
     Http.task
-        { method = "POST"
-        , headers = [ authorization botToken_ ]
-        , url = url
+        { method = requestType
+        , headers = [ authorization authentication ]
+        , url = Url.Builder.crossOrigin discordApiUrl path queryParameters
         , resolver = Http.stringResolver (resolver decoder)
-        , body = Http.jsonBody body
-        , timeout = Nothing
-        }
-
-
-httpPut : Authentication -> JD.Decoder a -> String -> JE.Value -> Task String a
-httpPut botToken_ decoder url body =
-    Http.task
-        { method = "PUT"
-        , headers = [ authorization botToken_ ]
-        , url = url
-        , resolver = Http.stringResolver (resolver decoder)
-        , body = Http.jsonBody body
-        , timeout = Nothing
-        }
-
-
-httpGet : Authentication -> JD.Decoder a -> String -> Task String a
-httpGet botToken_ decoder url =
-    Http.task
-        { method = "GET"
-        , headers = [ authorization botToken_ ]
-        , url = url
-        , resolver = Http.stringResolver (resolver decoder)
-        , body = Http.emptyBody
+        , body = body
         , timeout = Nothing
         }
 
@@ -335,6 +697,10 @@ type ApplicationId
     = ApplicationId Never
 
 
+type InviteId
+    = InviteId Never
+
+
 type alias Message =
     { id : Id MessageId
     , channelId : Id ChannelId
@@ -417,18 +783,7 @@ decodeUser =
     JD.succeed User
         |> JD.andMap (JD.field "id" decodeSnowflake)
         |> JD.andMap (JD.field "username" JD.string)
-        |> JD.andMap
-            (JD.field "discriminator" JD.string
-                |> JD.andThen
-                    (\text ->
-                        case String.toInt text of
-                            Just value ->
-                                JD.succeed value
-
-                            Nothing ->
-                                JD.fail "Invalid discriminator"
-                    )
-            )
+        |> JD.andMap (JD.field "discriminator" decodeDiscriminator)
         |> JD.andMap (JD.field "avatar" (JD.nullable JD.string))
         |> JD.andMap (decodeOptionalData "bot" JD.bool)
         |> JD.andMap (decodeOptionalData "system" JD.bool)
@@ -710,7 +1065,7 @@ type Bits
 
 type alias Channel =
     { id : Id ChannelId
-    , type_ : ChannelTypes
+    , type_ : ChannelType
     , guildId : OptionalData (Id GuildId)
     , position : OptionalData Int
 
@@ -735,7 +1090,7 @@ decodeChannel : JD.Decoder Channel
 decodeChannel =
     JD.succeed Channel
         |> JD.andMap (JD.field "id" decodeSnowflake)
-        |> JD.andMap (JD.field "type" decodeChannelTypes)
+        |> JD.andMap (JD.field "type" decodeChannelType)
         |> JD.andMap (decodeOptionalData "guild_id" decodeSnowflake)
         |> JD.andMap (decodeOptionalData "position" JD.int)
         |> JD.andMap (decodeOptionalData "name" JD.string)
@@ -753,7 +1108,7 @@ decodeChannel =
         |> JD.andMap (decodeOptionalData "last_pin_timestamp" Iso8601.decoder)
 
 
-type ChannelTypes
+type ChannelType
     = GuildText
     | DirectMessage
     | GuildVoice
@@ -763,8 +1118,8 @@ type ChannelTypes
     | GuildStore
 
 
-decodeChannelTypes : JD.Decoder ChannelTypes
-decodeChannelTypes =
+decodeChannelType : JD.Decoder ChannelType
+decodeChannelType =
     JD.andThen
         (\value ->
             case value of

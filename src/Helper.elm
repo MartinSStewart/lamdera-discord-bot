@@ -22,22 +22,20 @@ isValidMessage message =
 
 
 taskMerge : Task a a -> Cmd a
-taskMerge task =
-    task
-        |> Task.attempt
-            (\result ->
-                case result of
-                    Ok ok ->
-                        ok
+taskMerge =
+    Task.attempt
+        (\result ->
+            case result of
+                Ok ok ->
+                    ok
 
-                    Err err ->
-                        err
-            )
+                Err err ->
+                    err
+        )
 
 
 taskAttemptWithTime : (Result e a -> Time.Posix -> msg) -> Task e a -> Cmd msg
-taskAttemptWithTime msgWithTime task =
-    task
-        |> Task.andThen (\ok -> Time.now |> Task.map (msgWithTime (Ok ok)))
-        |> Task.onError (\error -> Time.now |> Task.map (msgWithTime (Err error)))
-        |> taskMerge
+taskAttemptWithTime msgWithTime =
+    Task.andThen (\ok -> Time.now |> Task.map (msgWithTime (Ok ok)))
+        >> Task.onError (\error -> Time.now |> Task.map (msgWithTime (Err error)))
+        >> taskMerge
