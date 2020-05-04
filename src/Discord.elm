@@ -4,10 +4,10 @@ module Discord exposing
     , Emoji, EmojiId
     , Guild, GuildId, GuildMember, RoleId, PartialGuild
     , Invite, InviteWithMetadata, InviteCode(..)
-    , getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
+    , username, nickname, Username, Nickname, UsernameError(..), NicknameError(..), getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
     , WebhookId
-    , Png(..), Jpg(..), WebP(..), Gif(..), Choices(..), customEmoji, guildIcon, guildSplash, guildDiscoverySplash, guildBanner, defaultUserAvatar, userAvatar, applicationIcon, applicationAsset, achievementIcon, teamIcon
-    , Bits, ChannelInviteConfig, DataUri(..), GuildModifications, GuildPreview, Hash(..), Id(..), ImageCdnConfig, ImageSize(..), Modify(..), OptionalData(..), Roles(..), UserDiscriminator(..), addPinnedChannelMessage, createChannelInvite, createGuildEmoji, defaultChannelInviteConfig, deleteChannelPermission, deleteGuildEmoji, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildEmojis, getGuildPreview, getPinnedMessages, listGuildEmojis, listGuildMembers, modifyGuildEmoji, noGuildModifications, triggerTypingIndicator
+    , ImageCdnConfig, Png(..), Jpg(..), WebP(..), Gif(..), Choices(..), customEmoji, guildIcon, guildSplash, guildDiscoverySplash, guildBanner, defaultUserAvatar, userAvatar, applicationIcon, applicationAsset, achievementIcon, teamIcon
+    , Bits, ChannelInviteConfig, DataUri(..), GuildModifications, GuildPreview, Id(..), ImageHash, ImageSize(..), Modify(..), OptionalData(..), Roles(..), UserDiscriminator(..), addPinnedChannelMessage, createChannelInvite, createGuildEmoji, defaultChannelInviteConfig, deleteChannelPermission, deleteGuildEmoji, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildEmojis, getGuildPreview, getPinnedMessages, imageIsAnimated, listGuildEmojis, listGuildMembers, modifyGuildEmoji, noGuildModifications, triggerTypingIndicator
     )
 
 {-| The beginnings of an Elm package...
@@ -52,7 +52,7 @@ For that reason it's probably a good idea to have a look at the source code and 
 
 # User
 
-@docs getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
+@docs username, nickname, Username, Nickname, UsernameError, NicknameError, getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
 
 
 # Voice
@@ -67,7 +67,7 @@ For that reason it's probably a good idea to have a look at the source code and 
 
 These are functions that return a url pointing to a particular image.
 
-@docs Config, Png, Jpg, WebP, Gif, Choices, customEmoji, guildIcon, guildSplash, guildDiscoverySplash, guildBanner, defaultUserAvatar, userAvatar, applicationIcon, applicationAsset, achievementIcon, teamIcon
+@docs ImageCdnConfig, Png, Jpg, WebP, Gif, Choices, customEmoji, guildIcon, guildSplash, guildDiscoverySplash, guildBanner, defaultUserAvatar, userAvatar, applicationIcon, applicationAsset, achievementIcon, teamIcon
 
 -}
 
@@ -79,6 +79,7 @@ import Json.Decode as JD
 import Json.Decode.Extra as JD
 import Json.Encode as JE
 import Quantity exposing (Quantity(..), Rate)
+import Set exposing (Set)
 import Task exposing (Task)
 import Time exposing (Posix(..))
 import Url exposing (Url)
@@ -678,6 +679,42 @@ listGuildMembers authentication { guildId, limit, after } =
 --- USER ENDPOINTS ---
 
 
+username : String -> Result UsernameError Username
+username usernameText =
+    if String.length usernameText < 2 then
+        Err UsernameTooShort
+
+    else if String.length usernameText > 32 then
+        Err UsernameTooLong
+
+    else if List.any (\substring -> String.contains substring usernameText) invalidNameSubstrings then
+        Err ContainsInvalidSubstring
+
+    else if String.any (\char -> Set.member char invalidNameCharacters) usernameText then
+        Err ContainsInvalidCharacters
+
+    else
+        String.trim usernameText |> Username |> Ok
+
+
+nickname : String -> Result NicknameError Nickname
+nickname nicknameText =
+    if String.length nicknameText < 1 then
+        Err NicknameTooShort
+
+    else if String.length nicknameText > 32 then
+        Err NicknameTooLong
+
+    else if List.any (\substring -> String.contains substring nicknameText) invalidNameSubstrings then
+        Err ContainsInvalidSubstring_
+
+    else if String.any (\char -> Set.member char invalidNameCharacters) nicknameText then
+        Err ContainsInvalidCharacters_
+
+    else
+        String.trim nicknameText |> Nickname |> Ok
+
+
 getCurrentUser : Authentication -> Task String User
 getCurrentUser authentication =
     httpGet
@@ -702,6 +739,11 @@ getCurrentUserGuilds authentication =
 --- CDN ENDPOINTS ---
 
 
+imageIsAnimated : ImageHash hashType -> Bool
+imageIsAnimated (ImageHash hash) =
+    String.startsWith "a_" hash
+
+
 customEmoji : ImageCdnConfig (Choices Png Gif Never Never) -> Id EmojiId -> String
 customEmoji { size, imageType } emojiId =
     Url.Builder.crossOrigin
@@ -710,7 +752,7 @@ customEmoji { size, imageType } emojiId =
         (imageSizeQuery size)
 
 
-guildIcon : ImageCdnConfig (Choices Png Jpg WebP Gif) -> Id GuildId -> Hash IconHash -> String
+guildIcon : ImageCdnConfig (Choices Png Jpg WebP Gif) -> Id GuildId -> ImageHash IconHash -> String
 guildIcon { size, imageType } guildId iconHash =
     Url.Builder.crossOrigin
         discordCdnUrl
@@ -718,7 +760,7 @@ guildIcon { size, imageType } guildId iconHash =
         (imageSizeQuery size)
 
 
-guildSplash : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> Hash SplashHash -> String
+guildSplash : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> ImageHash SplashHash -> String
 guildSplash { size, imageType } guildId splashHash =
     Url.Builder.crossOrigin
         discordCdnUrl
@@ -726,7 +768,7 @@ guildSplash { size, imageType } guildId splashHash =
         (imageSizeQuery size)
 
 
-guildDiscoverySplash : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> Hash DiscoverySplashHash -> String
+guildDiscoverySplash : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> ImageHash DiscoverySplashHash -> String
 guildDiscoverySplash { size, imageType } guildId discoverySplashHash =
     Url.Builder.crossOrigin
         discordCdnUrl
@@ -734,7 +776,7 @@ guildDiscoverySplash { size, imageType } guildId discoverySplashHash =
         (imageSizeQuery size)
 
 
-guildBanner : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> Hash BannerHash -> String
+guildBanner : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> ImageHash BannerHash -> String
 guildBanner { size, imageType } guildId splashHash =
     Url.Builder.crossOrigin
         discordCdnUrl
@@ -750,7 +792,7 @@ defaultUserAvatar size guildId (UserDiscriminator discriminator) =
         (imageSizeQuery size)
 
 
-userAvatar : ImageCdnConfig (Choices Png Jpg WebP Gif) -> Id UserId -> Hash AvatarHash -> String
+userAvatar : ImageCdnConfig (Choices Png Jpg WebP Gif) -> Id UserId -> ImageHash AvatarHash -> String
 userAvatar { size, imageType } guildId avatarHash =
     Url.Builder.crossOrigin
         discordCdnUrl
@@ -758,7 +800,7 @@ userAvatar { size, imageType } guildId avatarHash =
         (imageSizeQuery size)
 
 
-applicationIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> Hash ApplicationIconHash -> String
+applicationIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> ImageHash ApplicationIconHash -> String
 applicationIcon { size, imageType } applicationId applicationIconHash =
     Url.Builder.crossOrigin
         discordCdnUrl
@@ -766,7 +808,7 @@ applicationIcon { size, imageType } applicationId applicationIconHash =
         (imageSizeQuery size)
 
 
-applicationAsset : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> Hash ApplicationAssetHash -> String
+applicationAsset : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> ImageHash ApplicationAssetHash -> String
 applicationAsset { size, imageType } applicationId applicationAssetHash =
     Url.Builder.crossOrigin
         discordCdnUrl
@@ -774,7 +816,7 @@ applicationAsset { size, imageType } applicationId applicationAssetHash =
         (imageSizeQuery size)
 
 
-achievementIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> Id AchievementId -> Hash AchievementIconHash -> String
+achievementIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> Id AchievementId -> ImageHash AchievementIconHash -> String
 achievementIcon { size, imageType } applicationId achievementId achievementIconHash =
     Url.Builder.crossOrigin
         discordCdnUrl
@@ -788,7 +830,7 @@ achievementIcon { size, imageType } applicationId achievementId achievementIconH
         (imageSizeQuery size)
 
 
-teamIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id TeamId -> Hash TeamIconHash -> String
+teamIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id TeamId -> ImageHash TeamIconHash -> String
 teamIcon { size, imageType } teamId teamIconHash =
     Url.Builder.crossOrigin
         discordCdnUrl
@@ -831,8 +873,8 @@ rawId (Id id) =
     id
 
 
-rawHash : Hash hashType -> String
-rawHash (Hash hash) =
+rawHash : ImageHash hashType -> String
+rawHash (ImageHash hash) =
     hash
 
 
@@ -960,6 +1002,16 @@ imageSizeQuery size =
             []
 
 
+invalidNameSubstrings : List String
+invalidNameSubstrings =
+    [ "discordtag", "everyone", "here", "```" ]
+
+
+invalidNameCharacters : Set Char
+invalidNameCharacters =
+    Set.fromList [ '@', '#', ':' ]
+
+
 
 --- TYPES ---
 
@@ -977,9 +1029,9 @@ type OptionalData a
 type alias Guild =
     { id : Id GuildId
     , name : String
-    , icon : Maybe (Hash IconHash)
-    , splash : Maybe (Hash SplashHash)
-    , discoverySplash : Maybe (Hash DiscoverySplashHash)
+    , icon : Maybe (ImageHash IconHash)
+    , splash : Maybe (ImageHash SplashHash)
+    , discoverySplash : Maybe (ImageHash DiscoverySplashHash)
     , owner : OptionalData Bool
     , ownerId : Id UserId
     , permissions : OptionalData Permissions
@@ -1016,7 +1068,7 @@ type alias Guild =
     , maxMembers : OptionalData Int
     , vanityUrlCode : Maybe String
     , description : Maybe String
-    , banner : Maybe (Hash BannerHash)
+    , banner : Maybe (ImageHash BannerHash)
     , premiumTier : Int
     , premiumSubscriptionCount : OptionalData Int
     , preferredLocale : String
@@ -1026,9 +1078,20 @@ type alias Guild =
     }
 
 
+type Nickname
+    = Nickname String
+
+
+type NicknameError
+    = NicknameTooShort
+    | NicknameTooLong
+    | ContainsInvalidSubstring_
+    | ContainsInvalidCharacters_
+
+
 type alias GuildMember =
     { user : OptionalData User
-    , nickname : Maybe String
+    , nickname : Maybe Nickname
     , roles : List (Id RoleId)
     , joinedAt : Time.Posix
     , premiumSince : OptionalData (Maybe Time.Posix)
@@ -1040,7 +1103,7 @@ type alias GuildMember =
 type alias PartialGuild =
     { id : Id GuildId
     , name : String
-    , icon : Maybe (Hash IconHash)
+    , icon : Maybe (ImageHash IconHash)
     , owner : Bool
     , permissions : Permissions
     }
@@ -1049,9 +1112,9 @@ type alias PartialGuild =
 type alias GuildPreview =
     { id : Id GuildId
     , name : String
-    , icon : Maybe (Hash IconHash)
-    , splash : Maybe (Hash SplashHash)
-    , discoverySplash : Maybe (Hash DiscoverySplashHash)
+    , icon : Maybe (ImageHash IconHash)
+    , splash : Maybe (ImageHash SplashHash)
+    , discoverySplash : Maybe (ImageHash DiscoverySplashHash)
     , emojis : List Emoji
     , features : List String
     , approximateMemberCount : Int
@@ -1213,11 +1276,22 @@ type alias Attachment =
     }
 
 
+type Username
+    = Username String
+
+
+type UsernameError
+    = UsernameTooShort
+    | UsernameTooLong
+    | ContainsInvalidCharacters
+    | ContainsInvalidSubstring
+
+
 type alias User =
     { id : Id UserId
-    , username : String
+    , username : Username
     , discriminator : UserDiscriminator
-    , avatar : Maybe (Hash AvatarHash)
+    , avatar : Maybe (ImageHash AvatarHash)
     , bot : OptionalData Bool
     , system : OptionalData Bool
     , mfaEnabled : OptionalData Bool
@@ -1232,14 +1306,14 @@ type alias User =
 
 type alias PartialUser =
     { id : Id UserId
-    , username : String
-    , avatar : Maybe (Hash AvatarHash)
+    , username : Username
+    , avatar : Maybe (ImageHash AvatarHash)
     , discriminator : UserDiscriminator
     }
 
 
-type Hash hashType
-    = Hash String
+type ImageHash hashType
+    = ImageHash String
 
 
 type AvatarHash
@@ -1459,7 +1533,7 @@ decodeGuildMember : JD.Decoder GuildMember
 decodeGuildMember =
     JD.succeed GuildMember
         |> JD.andMap (decodeOptionalData "user" decodeUser)
-        |> JD.andMap (JD.field "nick" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "nick" (JD.nullable decodeNickname))
         |> JD.andMap (JD.field "roles" (JD.list decodeSnowflake))
         |> JD.andMap (JD.field "joined_at" Iso8601.decoder)
         |> JD.andMap (decodeOptionalData "premium_since" (JD.nullable Iso8601.decoder))
@@ -1489,9 +1563,9 @@ decodeSnowflake =
         JD.string
 
 
-decodeHash : JD.Decoder (Hash hashType)
+decodeHash : JD.Decoder (ImageHash hashType)
 decodeHash =
-    JD.map Hash JD.string
+    JD.map ImageHash JD.string
 
 
 decodeMessage : JD.Decoder Message
@@ -1519,7 +1593,7 @@ decodeUser : JD.Decoder User
 decodeUser =
     JD.succeed User
         |> JD.andMap (JD.field "id" decodeSnowflake)
-        |> JD.andMap (JD.field "username" JD.string)
+        |> JD.andMap (JD.field "username" decodeUsername)
         |> JD.andMap (JD.field "discriminator" decodeDiscriminator)
         |> JD.andMap (JD.field "avatar" (JD.nullable decodeHash))
         |> JD.andMap (decodeOptionalData "bot" JD.bool)
@@ -1531,6 +1605,66 @@ decodeUser =
         |> JD.andMap (decodeOptionalData "flags" JD.int)
         |> JD.andMap (decodeOptionalData "premiumType" JD.int)
         |> JD.andMap (decodeOptionalData "publicFlags" JD.int)
+
+
+usernameErrorToString : UsernameError -> String
+usernameErrorToString usernameError =
+    case usernameError of
+        UsernameTooShort ->
+            "Username is too short. Must be at least 2 characters long."
+
+        UsernameTooLong ->
+            "Username is too long. Must be 32 characters or shorter."
+
+        ContainsInvalidCharacters ->
+            "Username contains invalid characters."
+
+        ContainsInvalidSubstring ->
+            "Username contains an invalid substring."
+
+
+decodeUsername : JD.Decoder Username
+decodeUsername =
+    JD.andThen
+        (\name ->
+            case username name of
+                Ok username_ ->
+                    JD.succeed username_
+
+                Err error ->
+                    JD.fail ("Invalid username. " ++ usernameErrorToString error)
+        )
+        JD.string
+
+
+nicknameErrorToString : NicknameError -> String
+nicknameErrorToString nicknameError =
+    case nicknameError of
+        NicknameTooShort ->
+            "Nickname is too short. Must be at least 1 character long."
+
+        NicknameTooLong ->
+            "Nickname is too long. Must be 32 characters or shorter."
+
+        ContainsInvalidCharacters_ ->
+            "Nickname contains invalid characters."
+
+        ContainsInvalidSubstring_ ->
+            "Nickname contains an invalid substring."
+
+
+decodeNickname : JD.Decoder Nickname
+decodeNickname =
+    JD.andThen
+        (\name ->
+            case nickname name of
+                Ok nickname_ ->
+                    JD.succeed nickname_
+
+                Err error ->
+                    JD.fail ("Invalid username. " ++ nicknameErrorToString error)
+        )
+        JD.string
 
 
 decodeAttachment : JD.Decoder Attachment
@@ -1784,7 +1918,7 @@ decodePartialUser : JD.Decoder PartialUser
 decodePartialUser =
     JD.map4 PartialUser
         (JD.field "id" decodeSnowflake)
-        (JD.field "username" JD.string)
+        (JD.field "username" decodeUsername)
         (JD.field "avatar" (JD.nullable decodeHash))
         (JD.field "discriminator" decodeDiscriminator)
 
