@@ -6,7 +6,8 @@ module Discord exposing
     , Invite, InviteWithMetadata, InviteCode(..)
     , getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
     , WebhookId
-    , Bits, ChannelInviteConfig, DataUri(..), GuildModifications, GuildPreview, Id(..), Modify(..), OptionalData(..), Roles(..), addPinnedChannelMessage, createChannelInvite, createGuildEmoji, defaultChannelInviteConfig, deleteChannelPermission, deleteGuildEmoji, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildEmojis, getGuildPreview, getPinnedMessages, listGuildEmojis, listGuildMembers, modifyGuildEmoji, noGuildModifications, triggerTypingIndicator
+    , Png(..), Jpg(..), WebP(..), Gif(..), Choices(..), customEmoji, guildIcon, guildSplash, guildDiscoverySplash, guildBanner, defaultUserAvatar, userAvatar, applicationIcon, applicationAsset, achievementIcon, teamIcon
+    , Bits, ChannelInviteConfig, DataUri(..), GuildModifications, GuildPreview, Hash(..), Id(..), ImageCdnConfig, ImageSize(..), Modify(..), OptionalData(..), Roles(..), UserDiscriminator(..), addPinnedChannelMessage, createChannelInvite, createGuildEmoji, defaultChannelInviteConfig, deleteChannelPermission, deleteGuildEmoji, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildEmojis, getGuildPreview, getPinnedMessages, listGuildEmojis, listGuildMembers, modifyGuildEmoji, noGuildModifications, triggerTypingIndicator
     )
 
 {-| The beginnings of an Elm package...
@@ -61,6 +62,13 @@ For that reason it's probably a good idea to have a look at the source code and 
 
 @docs WebhookId
 
+
+# CDN
+
+These are functions that return a url pointing to a particular image.
+
+@docs Config, Png, Jpg, WebP, Gif, Choices, customEmoji, guildIcon, guildSplash, guildDiscoverySplash, guildBanner, defaultUserAvatar, userAvatar, applicationIcon, applicationAsset, achievementIcon, teamIcon
+
 -}
 
 import Binary
@@ -73,6 +81,7 @@ import Json.Encode as JE
 import Quantity exposing (Quantity(..), Rate)
 import Task exposing (Task)
 import Time exposing (Posix(..))
+import Url exposing (Url)
 import Url.Builder exposing (QueryParameter)
 
 
@@ -690,12 +699,115 @@ getCurrentUserGuilds authentication =
 
 --- VOICE ENDPOINTS ---
 --- WEBHOOK ENDPOINTS ---
+--- CDN ENDPOINTS ---
+
+
+customEmoji : ImageCdnConfig (Choices Png Gif Never Never) -> Id EmojiId -> String
+customEmoji { size, imageType } emojiId =
+    Url.Builder.crossOrigin
+        discordCdnUrl
+        [ "emojis", rawId emojiId ++ imageExtensionPngGif imageType ]
+        (imageSizeQuery size)
+
+
+guildIcon : ImageCdnConfig (Choices Png Jpg WebP Gif) -> Id GuildId -> Hash IconHash -> String
+guildIcon { size, imageType } guildId iconHash =
+    Url.Builder.crossOrigin
+        discordCdnUrl
+        [ "icons", rawId guildId, rawHash iconHash ++ imageExtensionPngJpgWebpGif imageType ]
+        (imageSizeQuery size)
+
+
+guildSplash : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> Hash SplashHash -> String
+guildSplash { size, imageType } guildId splashHash =
+    Url.Builder.crossOrigin
+        discordCdnUrl
+        [ "splashes", rawId guildId, rawHash splashHash ++ imageExtensionPngJpgWebp imageType ]
+        (imageSizeQuery size)
+
+
+guildDiscoverySplash : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> Hash DiscoverySplashHash -> String
+guildDiscoverySplash { size, imageType } guildId discoverySplashHash =
+    Url.Builder.crossOrigin
+        discordCdnUrl
+        [ "discovery-splashes", rawId guildId, rawHash discoverySplashHash ++ imageExtensionPngJpgWebp imageType ]
+        (imageSizeQuery size)
+
+
+guildBanner : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> Hash BannerHash -> String
+guildBanner { size, imageType } guildId splashHash =
+    Url.Builder.crossOrigin
+        discordCdnUrl
+        [ "banners", rawId guildId, rawHash splashHash ++ imageExtensionPngJpgWebp imageType ]
+        (imageSizeQuery size)
+
+
+defaultUserAvatar : ImageSize -> Id UserId -> UserDiscriminator -> String
+defaultUserAvatar size guildId (UserDiscriminator discriminator) =
+    Url.Builder.crossOrigin
+        discordCdnUrl
+        [ "embed", "avatars", rawId guildId, String.fromInt (modBy 5 discriminator) ++ ".png" ]
+        (imageSizeQuery size)
+
+
+userAvatar : ImageCdnConfig (Choices Png Jpg WebP Gif) -> Id UserId -> Hash AvatarHash -> String
+userAvatar { size, imageType } guildId avatarHash =
+    Url.Builder.crossOrigin
+        discordCdnUrl
+        [ "avatars", rawId guildId, rawHash avatarHash ++ imageExtensionPngJpgWebpGif imageType ]
+        (imageSizeQuery size)
+
+
+applicationIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> Hash ApplicationIconHash -> String
+applicationIcon { size, imageType } applicationId applicationIconHash =
+    Url.Builder.crossOrigin
+        discordCdnUrl
+        [ "app-icons", rawId applicationId, rawHash applicationIconHash ++ imageExtensionPngJpgWebp imageType ]
+        (imageSizeQuery size)
+
+
+applicationAsset : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> Hash ApplicationAssetHash -> String
+applicationAsset { size, imageType } applicationId applicationAssetHash =
+    Url.Builder.crossOrigin
+        discordCdnUrl
+        [ "app-assets", rawId applicationId, rawHash applicationAssetHash ++ imageExtensionPngJpgWebp imageType ]
+        (imageSizeQuery size)
+
+
+achievementIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> Id AchievementId -> Hash AchievementIconHash -> String
+achievementIcon { size, imageType } applicationId achievementId achievementIconHash =
+    Url.Builder.crossOrigin
+        discordCdnUrl
+        [ "app-assets"
+        , rawId applicationId
+        , "achievements"
+        , rawId achievementId
+        , "icons"
+        , rawHash achievementIconHash ++ imageExtensionPngJpgWebp imageType
+        ]
+        (imageSizeQuery size)
+
+
+teamIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id TeamId -> Hash TeamIconHash -> String
+teamIcon { size, imageType } teamId teamIconHash =
+    Url.Builder.crossOrigin
+        discordCdnUrl
+        [ "team-icons", rawId teamId, rawHash teamIconHash ++ ".png" ]
+        (imageSizeQuery size)
+
+
+
 --- MISCELLANEOUS ---
 
 
 discordApiUrl : String
 discordApiUrl =
     "https://discordapp.com/api/"
+
+
+discordCdnUrl : String
+discordCdnUrl =
+    "https://cdn.discordapp.com/"
 
 
 {-| Looks something like this `MTk4NjIyNDgzNDcxOTI1MjQ4.Cl2FMQ.ZnCjm1XVW7vRze4b7Cq4se7kKWs`.
@@ -717,6 +829,11 @@ bearerToken =
 rawId : Id idType -> String
 rawId (Id id) =
     id
+
+
+rawHash : Hash hashType -> String
+rawHash (Hash hash) =
+    hash
 
 
 httpPost : Authentication -> JD.Decoder a -> List String -> List QueryParameter -> JE.Value -> Task String a
@@ -794,6 +911,55 @@ rawDataUri (DataUri dataUri) =
     dataUri
 
 
+imageExtensionPngGif : Choices Png Gif Never Never -> String
+imageExtensionPngGif choice =
+    case choice of
+        Choice1 _ ->
+            ".png"
+
+        _ ->
+            ".gif"
+
+
+imageExtensionPngJpgWebpGif : Choices Png Jpg WebP Gif -> String
+imageExtensionPngJpgWebpGif choice =
+    case choice of
+        Choice1 _ ->
+            ".png"
+
+        Choice2 _ ->
+            ".jpg"
+
+        Choice3 _ ->
+            ".webp"
+
+        Choice4 _ ->
+            ".gif"
+
+
+imageExtensionPngJpgWebp : Choices Png Jpg WebP Never -> String
+imageExtensionPngJpgWebp choice =
+    case choice of
+        Choice1 _ ->
+            ".png"
+
+        Choice2 _ ->
+            ".jpg"
+
+        _ ->
+            ".webp"
+
+
+imageSizeQuery : ImageSize -> List QueryParameter
+imageSizeQuery size =
+    case size of
+        TwoToNthPower size_ ->
+            2 ^ size_ |> clamp 16 4096 |> Url.Builder.int "size" |> List.singleton
+
+        DefaultImageSize ->
+            []
+
+
 
 --- TYPES ---
 
@@ -811,9 +977,9 @@ type OptionalData a
 type alias Guild =
     { id : Id GuildId
     , name : String
-    , icon : Maybe String
-    , splash : Maybe String
-    , discoverySplash : Maybe String
+    , icon : Maybe (Hash IconHash)
+    , splash : Maybe (Hash SplashHash)
+    , discoverySplash : Maybe (Hash DiscoverySplashHash)
     , owner : OptionalData Bool
     , ownerId : Id UserId
     , permissions : OptionalData Permissions
@@ -850,7 +1016,7 @@ type alias Guild =
     , maxMembers : OptionalData Int
     , vanityUrlCode : Maybe String
     , description : Maybe String
-    , banner : Maybe String
+    , banner : Maybe (Hash BannerHash)
     , premiumTier : Int
     , premiumSubscriptionCount : OptionalData Int
     , preferredLocale : String
@@ -874,7 +1040,7 @@ type alias GuildMember =
 type alias PartialGuild =
     { id : Id GuildId
     , name : String
-    , icon : Maybe String
+    , icon : Maybe (Hash IconHash)
     , owner : Bool
     , permissions : Permissions
     }
@@ -883,9 +1049,9 @@ type alias PartialGuild =
 type alias GuildPreview =
     { id : Id GuildId
     , name : String
-    , icon : Maybe String
-    , splash : Maybe String
-    , discoverySplash : Maybe String
+    , icon : Maybe (Hash IconHash)
+    , splash : Maybe (Hash SplashHash)
+    , discoverySplash : Maybe (Hash DiscoverySplashHash)
     , emojis : List Emoji
     , features : List String
     , approximateMemberCount : Int
@@ -1050,8 +1216,8 @@ type alias Attachment =
 type alias User =
     { id : Id UserId
     , username : String
-    , discriminator : Int
-    , avatar : Maybe String
+    , discriminator : UserDiscriminator
+    , avatar : Maybe (Hash AvatarHash)
     , bot : OptionalData Bool
     , system : OptionalData Bool
     , mfaEnabled : OptionalData Bool
@@ -1067,12 +1233,52 @@ type alias User =
 type alias PartialUser =
     { id : Id UserId
     , username : String
-    , avatar : Maybe String
-    , discriminator : Int
+    , avatar : Maybe (Hash AvatarHash)
+    , discriminator : UserDiscriminator
     }
 
 
-{-| In Discord's documentation these are called snowflakes. Id is much quicker to write though.
+type Hash hashType
+    = Hash String
+
+
+type AvatarHash
+    = AvatarHash Never
+
+
+type BannerHash
+    = BannerHash Never
+
+
+type IconHash
+    = IconHash Never
+
+
+type SplashHash
+    = SplashHash Never
+
+
+type DiscoverySplashHash
+    = DiscoverSplashHash Never
+
+
+type AchievementIconHash
+    = AchievementIconHash Never
+
+
+type ApplicationAssetHash
+    = ApplicationAssetHash Never
+
+
+type TeamIconHash
+    = TeamIconHash Never
+
+
+type ApplicationIconHash
+    = ApplicationIconHash Never
+
+
+{-| In Discord's documentation these are called snowflakes. They are always 64bit positive integers.
 -}
 type Id idType
     = Id String
@@ -1116,6 +1322,14 @@ type ApplicationId
 
 type OverwriteId
     = OverwriteId Never
+
+
+type TeamId
+    = TeamId Never
+
+
+type AchievementId
+    = AchievementId Never
 
 
 type InviteCode
@@ -1180,6 +1394,10 @@ type DataUri
     = DataUri String
 
 
+type UserDiscriminator
+    = UserDiscriminator Int
+
+
 type alias GuildModifications =
     { name : Modify String
     , region : Modify (Maybe String)
@@ -1197,6 +1415,40 @@ type alias GuildModifications =
     , publicUpdatesChannelId : Modify (Maybe (Id ChannelId))
     , preferredLocale : Modify (Maybe String)
     }
+
+
+type ImageSize
+    = DefaultImageSize
+    | TwoToNthPower Int
+
+
+type alias ImageCdnConfig imageTypeChoices =
+    { size : ImageSize
+    , imageType : imageTypeChoices
+    }
+
+
+type Choices a b c d
+    = Choice1 a
+    | Choice2 b
+    | Choice3 c
+    | Choice4 d
+
+
+type Png
+    = Png
+
+
+type Gif
+    = Gif
+
+
+type Jpg
+    = Jpg
+
+
+type WebP
+    = WebP
 
 
 
@@ -1226,7 +1478,20 @@ decodeOptionalData field decoder =
 
 decodeSnowflake : JD.Decoder (Id idType)
 decodeSnowflake =
-    JD.map Id JD.string
+    JD.andThen
+        (\text ->
+            if String.all Char.isDigit text then
+                Id text |> JD.succeed
+
+            else
+                JD.fail "Invalid snowflake ID."
+        )
+        JD.string
+
+
+decodeHash : JD.Decoder (Hash hashType)
+decodeHash =
+    JD.map Hash JD.string
 
 
 decodeMessage : JD.Decoder Message
@@ -1256,7 +1521,7 @@ decodeUser =
         |> JD.andMap (JD.field "id" decodeSnowflake)
         |> JD.andMap (JD.field "username" JD.string)
         |> JD.andMap (JD.field "discriminator" decodeDiscriminator)
-        |> JD.andMap (JD.field "avatar" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "avatar" (JD.nullable decodeHash))
         |> JD.andMap (decodeOptionalData "bot" JD.bool)
         |> JD.andMap (decodeOptionalData "system" JD.bool)
         |> JD.andMap (decodeOptionalData "mfaEnabled" JD.bool)
@@ -1306,7 +1571,7 @@ decodePartialGuild =
     JD.succeed PartialGuild
         |> JD.andMap (JD.field "id" decodeSnowflake)
         |> JD.andMap (JD.field "name" JD.string)
-        |> JD.andMap (JD.field "icon" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "icon" (JD.nullable decodeHash))
         |> JD.andMap (JD.field "owner" JD.bool)
         |> JD.andMap (JD.field "permissions" decodePermissions)
 
@@ -1316,9 +1581,9 @@ decodeGuild =
     JD.succeed Guild
         |> JD.andMap (JD.field "id" decodeSnowflake)
         |> JD.andMap (JD.field "name" JD.string)
-        |> JD.andMap (JD.field "icon" (JD.nullable JD.string))
-        |> JD.andMap (JD.field "splash" (JD.nullable JD.string))
-        |> JD.andMap (JD.field "discovery_splash" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "icon" (JD.nullable decodeHash))
+        |> JD.andMap (JD.field "splash" (JD.nullable decodeHash))
+        |> JD.andMap (JD.field "discovery_splash" (JD.nullable decodeHash))
         |> JD.andMap (decodeOptionalData "owner" JD.bool)
         |> JD.andMap (JD.field "owner_id" decodeSnowflake)
         |> JD.andMap (decodeOptionalData "permissions" decodePermissions)
@@ -1349,7 +1614,7 @@ decodeGuild =
         |> JD.andMap (decodeOptionalData "max_members" JD.int)
         |> JD.andMap (JD.field "vanity_url_code" (JD.nullable JD.string))
         |> JD.andMap (JD.field "description" (JD.nullable JD.string))
-        |> JD.andMap (JD.field "banner" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "banner" (JD.nullable decodeHash))
         |> JD.andMap (JD.field "premium_tier" JD.int)
         |> JD.andMap (decodeOptionalData "premium_subscription_count" JD.int)
         |> JD.andMap (JD.field "preferred_locale" JD.string)
@@ -1520,17 +1785,17 @@ decodePartialUser =
     JD.map4 PartialUser
         (JD.field "id" decodeSnowflake)
         (JD.field "username" JD.string)
-        (JD.field "avatar" (JD.nullable JD.string))
+        (JD.field "avatar" (JD.nullable decodeHash))
         (JD.field "discriminator" decodeDiscriminator)
 
 
-decodeDiscriminator : JD.Decoder Int
+decodeDiscriminator : JD.Decoder UserDiscriminator
 decodeDiscriminator =
     JD.andThen
         (\text ->
             case String.toInt text of
                 Just value ->
-                    JD.succeed value
+                    JD.succeed (UserDiscriminator value)
 
                 Nothing ->
                     JD.fail "Invalid discriminator"
@@ -1543,9 +1808,9 @@ decodeGuildPreview =
     JD.succeed GuildPreview
         |> JD.andMap (JD.field "id" decodeSnowflake)
         |> JD.andMap (JD.field "name" JD.string)
-        |> JD.andMap (JD.field "icon" (JD.nullable JD.string))
-        |> JD.andMap (JD.field "splash" (JD.nullable JD.string))
-        |> JD.andMap (JD.field "discovery_splash" (JD.nullable JD.string))
+        |> JD.andMap (JD.field "icon" (JD.nullable decodeHash))
+        |> JD.andMap (JD.field "splash" (JD.nullable decodeHash))
+        |> JD.andMap (JD.field "discovery_splash" (JD.nullable decodeHash))
         |> JD.andMap (JD.field "emojis" (JD.list decodeEmoji))
         |> JD.andMap (JD.field "features" (JD.list JD.string))
         |> JD.andMap (JD.field "approximate_member_count" JD.int)
