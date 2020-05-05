@@ -4,10 +4,10 @@ module Discord exposing
     , Emoji, EmojiId
     , Guild, GuildId, GuildMember, RoleId, PartialGuild
     , Invite, InviteWithMetadata, InviteCode(..)
-    , username, nickname, Username, Nickname, UsernameError(..), NicknameError(..), getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
+    , username, nickname, Username, Nickname, NameError(..), getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
     , WebhookId
     , ImageCdnConfig, Png(..), Jpg(..), WebP(..), Gif(..), Choices(..), customEmoji, guildIcon, guildSplash, guildDiscoverySplash, guildBanner, defaultUserAvatar, userAvatar, applicationIcon, applicationAsset, achievementIcon, teamIcon
-    , Bits, ChannelInviteConfig, DataUri(..), GuildModifications, GuildPreview, Id(..), ImageHash, ImageSize(..), Modify(..), OptionalData(..), Roles(..), UserDiscriminator(..), addPinnedChannelMessage, createChannelInvite, createGuildEmoji, defaultChannelInviteConfig, deleteChannelPermission, deleteGuildEmoji, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildEmojis, getGuildPreview, getPinnedMessages, imageIsAnimated, listGuildEmojis, listGuildMembers, modifyGuildEmoji, noGuildModifications, triggerTypingIndicator
+    , Bits, ChannelInviteConfig, DataUri(..), GuildModifications, GuildPreview, Id(..), ImageHash, ImageSize(..), Modify(..), OptionalData(..), Roles(..), UserDiscriminator(..), addPinnedChannelMessage, createChannelInvite, createGuildEmoji, defaultChannelInviteConfig, deleteChannelPermission, deleteGuildEmoji, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildEmojis, getGuildPreview, getPinnedMessages, imageIsAnimated, listGuildEmojis, listGuildMembers, modifyGuildEmoji, nicknameErrorToString, noGuildModifications, triggerTypingIndicator
     )
 
 {-| The beginnings of an Elm package...
@@ -52,7 +52,7 @@ For that reason it's probably a good idea to have a look at the source code and 
 
 # User
 
-@docs username, nickname, Username, Nickname, UsernameError, NicknameError, getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
+@docs username, nickname, Username, Nickname, NameError, getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
 
 
 # Voice
@@ -679,37 +679,37 @@ listGuildMembers authentication { guildId, limit, after } =
 --- USER ENDPOINTS ---
 
 
-username : String -> Result UsernameError Username
+username : String -> Result NameError Username
 username usernameText =
     if String.length usernameText < 2 then
-        Err UsernameTooShort
+        Err NameTooShort
 
     else if String.length usernameText > 32 then
-        Err UsernameTooLong
+        Err NameTooLong
 
     else if List.any (\substring -> String.contains substring usernameText) invalidNameSubstrings then
-        Err ContainsInvalidSubstring
+        Err NameContainsInvalidSubstring
 
     else if String.any (\char -> Set.member char invalidNameCharacters) usernameText then
-        Err ContainsInvalidCharacters
+        Err NameContainsInvalidCharacters
 
     else
         String.trim usernameText |> Username |> Ok
 
 
-nickname : String -> Result NicknameError Nickname
+nickname : String -> Result NameError Nickname
 nickname nicknameText =
     if String.length nicknameText < 1 then
-        Err NicknameTooShort
+        Err NameTooShort
 
     else if String.length nicknameText > 32 then
-        Err NicknameTooLong
+        Err NameTooLong
 
     else if List.any (\substring -> String.contains substring nicknameText) invalidNameSubstrings then
-        Err ContainsInvalidSubstring_
+        Err NameContainsInvalidSubstring
 
     else if String.any (\char -> Set.member char invalidNameCharacters) nicknameText then
-        Err ContainsInvalidCharacters_
+        Err NameContainsInvalidCharacters
 
     else
         String.trim nicknameText |> Nickname |> Ok
@@ -1082,13 +1082,6 @@ type Nickname
     = Nickname String
 
 
-type NicknameError
-    = NicknameTooShort
-    | NicknameTooLong
-    | ContainsInvalidSubstring_
-    | ContainsInvalidCharacters_
-
-
 type alias GuildMember =
     { user : OptionalData User
     , nickname : Maybe Nickname
@@ -1280,11 +1273,11 @@ type Username
     = Username String
 
 
-type UsernameError
-    = UsernameTooShort
-    | UsernameTooLong
-    | ContainsInvalidCharacters
-    | ContainsInvalidSubstring
+type NameError
+    = NameTooShort
+    | NameTooLong
+    | NameContainsInvalidCharacters
+    | NameContainsInvalidSubstring
 
 
 type alias User =
@@ -1607,19 +1600,19 @@ decodeUser =
         |> JD.andMap (decodeOptionalData "publicFlags" JD.int)
 
 
-usernameErrorToString : UsernameError -> String
+usernameErrorToString : NameError -> String
 usernameErrorToString usernameError =
     case usernameError of
-        UsernameTooShort ->
+        NameTooShort ->
             "Username is too short. Must be at least 2 characters long."
 
-        UsernameTooLong ->
+        NameTooLong ->
             "Username is too long. Must be 32 characters or shorter."
 
-        ContainsInvalidCharacters ->
+        NameContainsInvalidCharacters ->
             "Username contains invalid characters."
 
-        ContainsInvalidSubstring ->
+        NameContainsInvalidSubstring ->
             "Username contains an invalid substring."
 
 
@@ -1637,19 +1630,19 @@ decodeUsername =
         JD.string
 
 
-nicknameErrorToString : NicknameError -> String
+nicknameErrorToString : NameError -> String
 nicknameErrorToString nicknameError =
     case nicknameError of
-        NicknameTooShort ->
+        NameTooShort ->
             "Nickname is too short. Must be at least 1 character long."
 
-        NicknameTooLong ->
+        NameTooLong ->
             "Nickname is too long. Must be 32 characters or shorter."
 
-        ContainsInvalidCharacters_ ->
+        NameContainsInvalidCharacters ->
             "Nickname contains invalid characters."
 
-        ContainsInvalidSubstring_ ->
+        NameContainsInvalidSubstring ->
             "Nickname contains an invalid substring."
 
 
