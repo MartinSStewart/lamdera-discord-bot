@@ -7,7 +7,7 @@ module Discord exposing
     , username, nickname, Username, Nickname, NameError(..), getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
     , WebhookId
     , ImageCdnConfig, Png(..), Jpg(..), WebP(..), Gif(..), Choices(..)
-    , Bits, ChannelInviteConfig, CreateGuildCategoryChannel, CreateGuildTextChannel, CreateGuildVoiceChannel, DataUri(..), GuildModifications, GuildPreview, Id(..), ImageHash, ImageSize(..), Modify(..), OptionalData(..), Roles(..), UserDiscriminator(..), achievementIconUrl, addPinnedChannelMessage, applicationAssetUrl, applicationIconUrl, createChannelInvite, createGuildCategoryChannel, createGuildEmoji, createGuildTextChannel, createGuildVoiceChannel, customEmojiUrl, defaultChannelInviteConfig, defaultUserAvatarUrl, deleteChannelPermission, deleteGuild, deleteGuildEmoji, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildChannel, getGuildEmojis, getGuildPreview, getPinnedMessages, getUser, guildBannerUrl, guildDiscoverySplashUrl, guildIconUrl, guildSplashUrl, imageIsAnimated, listGuildEmojis, listGuildMembers, modifyCurrentUser, modifyGuild, modifyGuildEmoji, nicknameErrorToString, nicknameToString, noGuildModifications, teamIconUrl, triggerTypingIndicator, userAvatarUrl, usernameErrorToString, usernameToString
+    , Bits, ChannelInviteConfig, CreateGuildCategoryChannel, CreateGuildTextChannel, CreateGuildVoiceChannel, DataUri(..), GuildModifications, GuildPreview, Id(..), ImageHash, ImageSize(..), Modify(..), OptionalData(..), Roles(..), UserDiscriminator(..), achievementIconUrl, addPinnedChannelMessage, applicationAssetUrl, applicationIconUrl, createChannelInvite, createGuildCategoryChannel, createGuildEmoji, createGuildTextChannel, createGuildVoiceChannel, customEmojiUrl, defaultChannelInviteConfig, defaultUserAvatarUrl, deleteChannelPermission, deleteGuild, deleteGuildEmoji, deleteInvite, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildChannel, getGuildEmojis, getGuildPreview, getInvite, getPinnedMessages, getUser, guildBannerUrl, guildDiscoverySplashUrl, guildIconUrl, guildSplashUrl, imageIsAnimated, leaveGuild, listGuildEmojis, listGuildMembers, modifyCurrentUser, modifyGuild, modifyGuildEmoji, nicknameErrorToString, nicknameToString, noGuildModifications, teamIconUrl, triggerTypingIndicator, userAvatarUrl, usernameErrorToString, usernameToString
     )
 
 {-| Useful Discord links:
@@ -765,6 +765,33 @@ listGuildMembers authentication { guildId, limit, after } =
 
 
 --- INVITE ENDPOINTS ---
+
+
+{-| Returns an invite for the given code.
+-}
+getInvite : Authentication -> InviteCode -> Task String Invite
+getInvite authentication (InviteCode inviteCode) =
+    httpGet
+        authentication
+        decodeInvite
+        [ "invites", inviteCode ]
+        [ Url.Builder.string "with_counts" "true" ]
+
+
+{-| Delete an invite.
+Requires the `MANAGE_CHANNELS` permission on the channel this invite belongs to, or `MANAGE_GUILD` to remove any invite across the guild.
+-}
+deleteInvite : Authentication -> InviteCode -> Task String Invite
+deleteInvite authentication (InviteCode inviteCode) =
+    httpDelete
+        authentication
+        decodeInvite
+        [ "invites", inviteCode ]
+        []
+        (JE.object [])
+
+
+
 --- USER ENDPOINTS ---
 
 
@@ -888,6 +915,8 @@ modifyCurrentUser authentication modifications =
         )
 
 
+{-| Returns a list of partial guilds the current user is a member of. Requires the guilds OAuth2 scope.
+-}
 getCurrentUserGuilds : Authentication -> Task String (List PartialGuild)
 getCurrentUserGuilds authentication =
     httpGet
@@ -897,7 +926,23 @@ getCurrentUserGuilds authentication =
         []
 
 
+{-| Leave a guild.
+-}
+leaveGuild : Authentication -> Id GuildId -> Task String ()
+leaveGuild authentication guildId =
+    httpDelete
+        authentication
+        (JD.succeed ())
+        [ "users", "@me", "guilds", rawId guildId ]
+        []
+        (JE.object [])
 
+
+
+-- Get User DMs excluded
+-- Create DM excluded
+-- Create Group DM excluded
+-- Get User Connections excluded
 --- VOICE ENDPOINTS ---
 --- WEBHOOK ENDPOINTS ---
 --- CDN ENDPOINTS ---
