@@ -135,7 +135,7 @@ update msg model =
                                             Included guildId ->
                                                 Discord.listGuildMembers
                                                     Environment.botToken
-                                                    { guildId = guildId, limit = 100, after = Nothing }
+                                                    { guildId = guildId, limit = 100, after = Missing }
 
                                             Missing ->
                                                 Task.fail "Failed to get guild."
