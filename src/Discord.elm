@@ -6,15 +6,14 @@ module Discord exposing
     , Invite, InviteWithMetadata, InviteCode(..)
     , username, nickname, Username, Nickname, NameError(..), getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
     , WebhookId
-    , ImageCdnConfig, Png(..), Jpg(..), WebP(..), Gif(..), Choices(..), customEmoji, guildIcon, guildSplash, guildDiscoverySplash, guildBanner, defaultUserAvatar, userAvatar, applicationIcon, applicationAsset, achievementIcon, teamIcon
-    , Bits, ChannelInviteConfig, DataUri(..), GuildModifications, GuildPreview, Id(..), ImageHash, ImageSize(..), Modify(..), OptionalData(..), Roles(..), UserDiscriminator(..), addPinnedChannelMessage, createChannelInvite, createGuildEmoji, defaultChannelInviteConfig, deleteChannelPermission, deleteGuildEmoji, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildEmojis, getGuildPreview, getPinnedMessages, imageIsAnimated, listGuildEmojis, listGuildMembers, modifyGuildEmoji, nicknameErrorToString, noGuildModifications, triggerTypingIndicator
+    , ImageCdnConfig, Png(..), Jpg(..), WebP(..), Gif(..), Choices(..)
+    , Bits, ChannelInviteConfig, CreateGuildCategoryChannel, CreateGuildTextChannel, CreateGuildVoiceChannel, DataUri(..), GuildModifications, GuildPreview, Id(..), ImageHash, ImageSize(..), Modify(..), OptionalData(..), Roles(..), UserDiscriminator(..), achievementIconUrl, addPinnedChannelMessage, applicationAssetUrl, applicationIconUrl, createChannelInvite, createGuildCategoryChannel, createGuildEmoji, createGuildTextChannel, createGuildVoiceChannel, customEmojiUrl, defaultChannelInviteConfig, defaultUserAvatarUrl, deleteChannelPermission, deleteGuild, deleteGuildEmoji, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildChannel, getGuildEmojis, getGuildPreview, getPinnedMessages, getUser, guildBannerUrl, guildDiscoverySplashUrl, guildIconUrl, guildSplashUrl, imageIsAnimated, listGuildEmojis, listGuildMembers, modifyCurrentUser, modifyGuild, modifyGuildEmoji, nicknameErrorToString, nicknameToString, noGuildModifications, teamIconUrl, triggerTypingIndicator, userAvatarUrl, usernameErrorToString, usernameToString
     )
 
-{-| The beginnings of an Elm package...
-
-Useful Discord links:
+{-| Useful Discord links:
 
   - API documentation: <https://discordapp.com/developers/docs/intro>
+    (A lot of their documentation has been reused here. Thanks Discord!)
   - Create bot invites: <https://discordapi.com/permissions.html>
 
 Before starting, note that this package requires user credentials and creates tasks.
@@ -78,6 +77,7 @@ import Iso8601
 import Json.Decode as JD
 import Json.Decode.Extra as JD
 import Json.Encode as JE
+import Json.Encode.Extra as JE
 import Quantity exposing (Quantity(..), Rate)
 import Set exposing (Set)
 import Task exposing (Task)
@@ -615,37 +615,126 @@ noGuildModifications =
     }
 
 
+{-| Modify a guild's settings. Requires the `MANAGE_GUILD` permission.
 
---{-| Modify a guild's settings. Requires the `MANAGE_GUILD` permission.
---
---You probably only plan to change one or two things so I recommend you do the following:
---
---    import Discord exposing (Modify(..))
---
---    noChanges =
---        Discord.noGuildModifications
---
---    changeGuildName =
---        Discord.modifyGuild
---            myAuth
---            myGuildId
---            { noChange | name = Replace "New Guild Name" }
---
----}
---modifyGuild :
---    Authentication
---    -> Id GuildId
---    -> GuildModifications
---    -> Task String Guild
---modifyGuild authentication guildId =
---    httpPatch
---        authentication
---        decodeGuild
---        [ "guilds", rawId guildId ]
---        []
---        (JE.object
---            []
---        )
+If you only plan on changing one or two things then I recommend this approach:
+
+    import Discord exposing (Modify(..))
+
+    noChanges =
+        Discord.noGuildModifications
+
+    changeGuildName =
+        Discord.modifyGuild
+            myAuth
+            myGuildId
+            { noChange | name = Replace "New Guild Name" }
+
+-}
+modifyGuild :
+    Authentication
+    -> Id GuildId
+    -> GuildModifications
+    -> Task String Guild
+modifyGuild authentication guildId modifications =
+    httpPatch
+        authentication
+        decodeGuild
+        [ "guilds", rawId guildId ]
+        []
+        (JE.object
+            (encodeModify "name" JE.string modifications.name
+                ++ encodeModify "region" (JE.maybe JE.string) modifications.region
+                ++ encodeModify "verification_level" (JE.maybe JE.int) modifications.verificationLevel
+                ++ encodeModify "default_message_notifications" (JE.maybe JE.int) modifications.defaultMessageNotifications
+                ++ encodeModify "explicit_content_filter" (JE.maybe JE.int) modifications.explicitContentFilter
+                ++ encodeModify "afk_channel_id" (JE.maybe encodeId) modifications.afkChannelId
+                ++ encodeModify "afk_timeout" encodeQuantityInt modifications.afkTimeout
+                ++ encodeModify "icon" (JE.maybe encodeDataUri) modifications.icon
+                ++ encodeModify "owner_id" encodeId modifications.ownerId
+                ++ encodeModify "splash" (JE.maybe encodeDataUri) modifications.splash
+                ++ encodeModify "banner" (JE.maybe encodeDataUri) modifications.banner
+                ++ encodeModify "system_channel_id" (JE.maybe encodeId) modifications.systemChannelId
+                ++ encodeModify "rules_channel_id" (JE.maybe encodeId) modifications.rulesChannelId
+                ++ encodeModify "public_updates_channel_id" (JE.maybe encodeId) modifications.publicUpdatesChannelId
+                ++ encodeModify "preferred_locale" (JE.maybe JE.string) modifications.preferredLocale
+            )
+        )
+
+
+{-| Delete a guild permanently. User must be owner.
+-}
+deleteGuild : Authentication -> Id GuildId -> Task String ()
+deleteGuild authentication guildId =
+    httpDelete authentication (JD.succeed ()) [ "guilds", rawId guildId ] [] (JE.object [])
+
+
+{-| Returns a list of guild channels.
+-}
+getGuildChannel : Authentication -> Id GuildId -> Task String (List Channel)
+getGuildChannel authentication guildId =
+    httpGet authentication (JD.list decodeChannel) [ "guilds", rawId guildId, "channels" ] []
+
+
+{-| Create a new text channel for the guild. Requires the `MANAGE_CHANNELS` permission.
+-}
+createGuildTextChannel : Authentication -> CreateGuildTextChannel -> Task String Channel
+createGuildTextChannel authentication config =
+    httpPost
+        authentication
+        decodeChannel
+        [ "guilds", rawId config.guildId, "channels" ]
+        []
+        (JE.object
+            (( "name", JE.string config.name )
+                :: ( "type", JE.int 0 )
+                :: ( "topic", JE.string config.topic )
+                :: ( "nsfw", JE.bool config.nsfw )
+                :: encodeOptionalData "parent_id" encodeId config.parentId
+                ++ encodeOptionalData "position" JE.int config.position
+                ++ encodeOptionalData "rate_limit_per_user" encodeQuantityInt config.rateLimitPerUser
+            )
+        )
+
+
+{-| Create a new voice channel for the guild. Requires the `MANAGE_CHANNELS` permission.
+-}
+createGuildVoiceChannel : Authentication -> CreateGuildVoiceChannel -> Task String Channel
+createGuildVoiceChannel authentication config =
+    httpPost
+        authentication
+        decodeChannel
+        [ "guilds", rawId config.guildId, "channels" ]
+        []
+        (JE.object
+            (( "name", JE.string config.name )
+                :: ( "type", JE.int 2 )
+                :: ( "topic", JE.string config.topic )
+                :: ( "nsfw", JE.bool config.nsfw )
+                :: encodeOptionalData "parent_id" encodeId config.parentId
+                ++ encodeOptionalData "position" JE.int config.position
+                ++ encodeOptionalData "bitrate" encodeQuantityInt config.bitrate
+                ++ encodeOptionalData "user_limit" JE.int config.userLimit
+            )
+        )
+
+
+{-| Create a new category for the guild that you can place other channels in.
+Requires the `MANAGE_CHANNELS` permission.
+-}
+createGuildCategoryChannel : Authentication -> CreateGuildCategoryChannel -> Task String Channel
+createGuildCategoryChannel authentication config =
+    httpPost
+        authentication
+        decodeChannel
+        [ "guilds", rawId config.guildId, "channels" ]
+        []
+        (JE.object
+            (( "name", JE.string config.name )
+                :: ( "type", JE.int 4 )
+                :: encodeOptionalData "position" JE.int config.position
+            )
+        )
 
 
 {-| Returns a list of guild members that are members of the guild.
@@ -697,6 +786,11 @@ username usernameText =
         String.trim usernameText |> Username |> Ok
 
 
+usernameToString : Username -> String
+usernameToString (Username username_) =
+    username_
+
+
 nickname : String -> Result NameError Nickname
 nickname nicknameText =
     if String.length nicknameText < 1 then
@@ -715,6 +809,46 @@ nickname nicknameText =
         String.trim nicknameText |> Nickname |> Ok
 
 
+nicknameToString : Nickname -> String
+nicknameToString (Nickname nickname_) =
+    nickname_
+
+
+usernameErrorToString : NameError -> String
+usernameErrorToString usernameError =
+    case usernameError of
+        NameTooShort ->
+            "Username is too short. Must be at least 2 characters long."
+
+        NameTooLong ->
+            "Username is too long. Must be 32 characters or shorter."
+
+        NameContainsInvalidCharacters ->
+            "Username contains invalid characters."
+
+        NameContainsInvalidSubstring ->
+            "Username contains an invalid substring."
+
+
+nicknameErrorToString : NameError -> String
+nicknameErrorToString nicknameError =
+    case nicknameError of
+        NameTooShort ->
+            "Nickname is too short. Must be at least 1 character long."
+
+        NameTooLong ->
+            "Nickname is too long. Must be 32 characters or shorter."
+
+        NameContainsInvalidCharacters ->
+            "Nickname contains invalid characters."
+
+        NameContainsInvalidSubstring ->
+            "Nickname contains an invalid substring."
+
+
+{-| Returns the user object of the requester's account.
+For OAuth2, this requires the identify scope, which will return the object without an email, and optionally the email scope, which returns the object with an email.
+-}
 getCurrentUser : Authentication -> Task String User
 getCurrentUser authentication =
     httpGet
@@ -722,6 +856,36 @@ getCurrentUser authentication =
         decodeUser
         [ "users", "@me" ]
         []
+
+
+{-| Returns a user object for a given user ID.
+-}
+getUser : Authentication -> Id UserId -> Task String User
+getUser authentication userId =
+    httpGet authentication decodeUser [ "users", rawId userId ] []
+
+
+{-| Modify the requester's user account settings.
+
+  - username: The user's username. If changed, may cause the [`user's discriminator`](#UserDiscriminator) to be randomized.
+  - avatar: Modifies the user's avatar (aka profile picture)
+
+-}
+modifyCurrentUser :
+    Authentication
+    -> { username : Modify Username, avatar : Modify (Maybe DataUri) }
+    -> Task String User
+modifyCurrentUser authentication modifications =
+    httpPatch
+        authentication
+        decodeUser
+        [ "users", "@me" ]
+        []
+        (JE.object
+            (encodeModify "username" encodeUsername modifications.username
+                ++ encodeModify "avatar" (JE.maybe encodeDataUri) modifications.avatar
+            )
+        )
 
 
 getCurrentUserGuilds : Authentication -> Task String (List PartialGuild)
@@ -744,80 +908,80 @@ imageIsAnimated (ImageHash hash) =
     String.startsWith "a_" hash
 
 
-customEmoji : ImageCdnConfig (Choices Png Gif Never Never) -> Id EmojiId -> String
-customEmoji { size, imageType } emojiId =
+customEmojiUrl : ImageCdnConfig (Choices Png Gif Never Never) -> Id EmojiId -> String
+customEmojiUrl { size, imageType } emojiId =
     Url.Builder.crossOrigin
         discordCdnUrl
         [ "emojis", rawId emojiId ++ imageExtensionPngGif imageType ]
         (imageSizeQuery size)
 
 
-guildIcon : ImageCdnConfig (Choices Png Jpg WebP Gif) -> Id GuildId -> ImageHash IconHash -> String
-guildIcon { size, imageType } guildId iconHash =
+guildIconUrl : ImageCdnConfig (Choices Png Jpg WebP Gif) -> Id GuildId -> ImageHash IconHash -> String
+guildIconUrl { size, imageType } guildId iconHash =
     Url.Builder.crossOrigin
         discordCdnUrl
         [ "icons", rawId guildId, rawHash iconHash ++ imageExtensionPngJpgWebpGif imageType ]
         (imageSizeQuery size)
 
 
-guildSplash : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> ImageHash SplashHash -> String
-guildSplash { size, imageType } guildId splashHash =
+guildSplashUrl : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> ImageHash SplashHash -> String
+guildSplashUrl { size, imageType } guildId splashHash =
     Url.Builder.crossOrigin
         discordCdnUrl
         [ "splashes", rawId guildId, rawHash splashHash ++ imageExtensionPngJpgWebp imageType ]
         (imageSizeQuery size)
 
 
-guildDiscoverySplash : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> ImageHash DiscoverySplashHash -> String
-guildDiscoverySplash { size, imageType } guildId discoverySplashHash =
+guildDiscoverySplashUrl : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> ImageHash DiscoverySplashHash -> String
+guildDiscoverySplashUrl { size, imageType } guildId discoverySplashHash =
     Url.Builder.crossOrigin
         discordCdnUrl
         [ "discovery-splashes", rawId guildId, rawHash discoverySplashHash ++ imageExtensionPngJpgWebp imageType ]
         (imageSizeQuery size)
 
 
-guildBanner : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> ImageHash BannerHash -> String
-guildBanner { size, imageType } guildId splashHash =
+guildBannerUrl : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id GuildId -> ImageHash BannerHash -> String
+guildBannerUrl { size, imageType } guildId splashHash =
     Url.Builder.crossOrigin
         discordCdnUrl
         [ "banners", rawId guildId, rawHash splashHash ++ imageExtensionPngJpgWebp imageType ]
         (imageSizeQuery size)
 
 
-defaultUserAvatar : ImageSize -> Id UserId -> UserDiscriminator -> String
-defaultUserAvatar size guildId (UserDiscriminator discriminator) =
+defaultUserAvatarUrl : ImageSize -> Id UserId -> UserDiscriminator -> String
+defaultUserAvatarUrl size guildId (UserDiscriminator discriminator) =
     Url.Builder.crossOrigin
         discordCdnUrl
         [ "embed", "avatars", rawId guildId, String.fromInt (modBy 5 discriminator) ++ ".png" ]
         (imageSizeQuery size)
 
 
-userAvatar : ImageCdnConfig (Choices Png Jpg WebP Gif) -> Id UserId -> ImageHash AvatarHash -> String
-userAvatar { size, imageType } guildId avatarHash =
+userAvatarUrl : ImageCdnConfig (Choices Png Jpg WebP Gif) -> Id UserId -> ImageHash AvatarHash -> String
+userAvatarUrl { size, imageType } guildId avatarHash =
     Url.Builder.crossOrigin
         discordCdnUrl
         [ "avatars", rawId guildId, rawHash avatarHash ++ imageExtensionPngJpgWebpGif imageType ]
         (imageSizeQuery size)
 
 
-applicationIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> ImageHash ApplicationIconHash -> String
-applicationIcon { size, imageType } applicationId applicationIconHash =
+applicationIconUrl : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> ImageHash ApplicationIconHash -> String
+applicationIconUrl { size, imageType } applicationId applicationIconHash =
     Url.Builder.crossOrigin
         discordCdnUrl
         [ "app-icons", rawId applicationId, rawHash applicationIconHash ++ imageExtensionPngJpgWebp imageType ]
         (imageSizeQuery size)
 
 
-applicationAsset : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> ImageHash ApplicationAssetHash -> String
-applicationAsset { size, imageType } applicationId applicationAssetHash =
+applicationAssetUrl : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> ImageHash ApplicationAssetHash -> String
+applicationAssetUrl { size, imageType } applicationId applicationAssetHash =
     Url.Builder.crossOrigin
         discordCdnUrl
         [ "app-assets", rawId applicationId, rawHash applicationAssetHash ++ imageExtensionPngJpgWebp imageType ]
         (imageSizeQuery size)
 
 
-achievementIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> Id AchievementId -> ImageHash AchievementIconHash -> String
-achievementIcon { size, imageType } applicationId achievementId achievementIconHash =
+achievementIconUrl : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id ApplicationId -> Id AchievementId -> ImageHash AchievementIconHash -> String
+achievementIconUrl { size, imageType } applicationId achievementId achievementIconHash =
     Url.Builder.crossOrigin
         discordCdnUrl
         [ "app-assets"
@@ -830,8 +994,8 @@ achievementIcon { size, imageType } applicationId achievementId achievementIconH
         (imageSizeQuery size)
 
 
-teamIcon : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id TeamId -> ImageHash TeamIconHash -> String
-teamIcon { size, imageType } teamId teamIconHash =
+teamIconUrl : ImageCdnConfig (Choices Png Jpg WebP Never) -> Id TeamId -> ImageHash TeamIconHash -> String
+teamIconUrl { size, imageType } teamId teamIconHash =
     Url.Builder.crossOrigin
         discordCdnUrl
         [ "team-icons", rawId teamId, rawHash teamIconHash ++ ".png" ]
@@ -1484,11 +1648,25 @@ type alias GuildModifications =
     }
 
 
+{-| Specify the size of an image you want to get a link to.
+It can either be the default size of the image or a size in the form of `n ^ 2` (the resulting image size will get clamped between 16 and 4096)
+-}
 type ImageSize
     = DefaultImageSize
     | TwoToNthPower Int
 
 
+{-| Choose the image size and image file type.
+The available image types is shown in a function's type signature.
+
+    import Discord exposing (Choices(..), Gif(..), ImageSize)
+
+
+    -- Returns a url that points to a 32px (2^5) large, gif file of our custom emoji.
+    myEmoji =
+        Discord.customEmojiUrl { size = TwoToNthPower 5, imageType = Choice2 Gif }
+
+-}
 type alias ImageCdnConfig imageTypeChoices =
     { size : ImageSize
     , imageType : imageTypeChoices
@@ -1516,6 +1694,36 @@ type Jpg
 
 type WebP
     = WebP
+
+
+type alias CreateGuildTextChannel =
+    { guildId : Id GuildId
+    , name : String
+    , topic : String
+    , nsfw : Bool
+    , position : OptionalData Int
+    , parentId : OptionalData (Id ChannelId)
+    , rateLimitPerUser : OptionalData (Quantity Int Seconds)
+    }
+
+
+type alias CreateGuildVoiceChannel =
+    { guildId : Id GuildId
+    , name : String
+    , topic : String
+    , nsfw : Bool
+    , position : OptionalData Int
+    , parentId : OptionalData (Id ChannelId)
+    , bitrate : OptionalData (Quantity Int (Rate Bits Seconds))
+    , userLimit : OptionalData Int
+    }
+
+
+type alias CreateGuildCategoryChannel =
+    { guildId : Id GuildId
+    , name : String
+    , position : OptionalData Int
+    }
 
 
 
@@ -1600,22 +1808,6 @@ decodeUser =
         |> JD.andMap (decodeOptionalData "publicFlags" JD.int)
 
 
-usernameErrorToString : NameError -> String
-usernameErrorToString usernameError =
-    case usernameError of
-        NameTooShort ->
-            "Username is too short. Must be at least 2 characters long."
-
-        NameTooLong ->
-            "Username is too long. Must be 32 characters or shorter."
-
-        NameContainsInvalidCharacters ->
-            "Username contains invalid characters."
-
-        NameContainsInvalidSubstring ->
-            "Username contains an invalid substring."
-
-
 decodeUsername : JD.Decoder Username
 decodeUsername =
     JD.andThen
@@ -1628,22 +1820,6 @@ decodeUsername =
                     JD.fail ("Invalid username. " ++ usernameErrorToString error)
         )
         JD.string
-
-
-nicknameErrorToString : NameError -> String
-nicknameErrorToString nicknameError =
-    case nicknameError of
-        NameTooShort ->
-            "Nickname is too short. Must be at least 1 character long."
-
-        NameTooLong ->
-            "Nickname is too long. Must be 32 characters or shorter."
-
-        NameContainsInvalidCharacters ->
-            "Nickname contains invalid characters."
-
-        NameContainsInvalidSubstring ->
-            "Nickname contains an invalid substring."
 
 
 decodeNickname : JD.Decoder Nickname
@@ -1962,3 +2138,38 @@ encodeRoles roles =
 
         AllRoles ->
             JE.null
+
+
+encodeModify : String -> (a -> JE.Value) -> Modify a -> List ( String, JE.Value )
+encodeModify fieldName encoder modify =
+    case modify of
+        Replace value ->
+            [ ( fieldName, encoder value ) ]
+
+        Unchanged ->
+            []
+
+
+encodeUsername : Username -> JE.Value
+encodeUsername =
+    usernameToString >> JE.string
+
+
+encodeDataUri : DataUri -> JE.Value
+encodeDataUri (DataUri dataUri) =
+    JE.string dataUri
+
+
+encodeQuantityInt : Quantity Int units -> JE.Value
+encodeQuantityInt (Quantity quantity) =
+    JE.int quantity
+
+
+encodeOptionalData : String -> (a -> JE.Value) -> OptionalData a -> List ( String, JE.Value )
+encodeOptionalData fieldName encoder optionalData =
+    case optionalData of
+        Included value ->
+            [ ( fieldName, encoder value ) ]
+
+        Missing ->
+            []
