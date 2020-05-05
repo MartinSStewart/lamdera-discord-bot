@@ -7,7 +7,7 @@ module Discord exposing
     , username, nickname, Username, Nickname, NameError(..), getCurrentUser, getCurrentUserGuilds, User, PartialUser, UserId, Permissions
     , WebhookId
     , ImageCdnConfig, Png(..), Jpg(..), WebP(..), Gif(..), Choices(..)
-    , Bits, ChannelInviteConfig, CreateGuildCategoryChannel, CreateGuildTextChannel, CreateGuildVoiceChannel, DataUri(..), GuildModifications, GuildPreview, Id(..), ImageHash, ImageSize(..), Modify(..), OptionalData(..), Roles(..), UserDiscriminator(..), achievementIconUrl, addPinnedChannelMessage, applicationAssetUrl, applicationIconUrl, createChannelInvite, createGuildCategoryChannel, createGuildEmoji, createGuildTextChannel, createGuildVoiceChannel, customEmojiUrl, defaultChannelInviteConfig, defaultUserAvatarUrl, deleteChannelPermission, deleteGuild, deleteGuildEmoji, deleteInvite, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildChannel, getGuildEmojis, getGuildPreview, getInvite, getPinnedMessages, getUser, guildBannerUrl, guildDiscoverySplashUrl, guildIconUrl, guildSplashUrl, imageIsAnimated, leaveGuild, listGuildEmojis, listGuildMembers, modifyCurrentUser, modifyGuild, modifyGuildEmoji, nicknameErrorToString, nicknameToString, noGuildModifications, teamIconUrl, triggerTypingIndicator, userAvatarUrl, usernameErrorToString, usernameToString
+    , Bits, ChannelInviteConfig, CreateGuildCategoryChannel, CreateGuildTextChannel, CreateGuildVoiceChannel, DataUri(..), GuildModifications, GuildPreview, Id(..), ImageHash, ImageSize(..), Modify(..), OptionalData(..), Roles(..), UserDiscriminator(..), achievementIconUrl, addPinnedChannelMessage, applicationAssetUrl, applicationIconUrl, createChannelInvite, createGuildCategoryChannel, createGuildEmoji, createGuildTextChannel, createGuildVoiceChannel, customEmojiUrl, defaultChannelInviteConfig, defaultUserAvatarUrl, deleteChannelPermission, deleteGuild, deleteGuildEmoji, deleteInvite, deletePinnedChannelMessage, editMessage, getChannelInvites, getGuild, getGuildChannel, getGuildEmojis, getGuildMember, getGuildPreview, getInvite, getPinnedMessages, getUser, guildBannerUrl, guildDiscoverySplashUrl, guildIconUrl, guildSplashUrl, imageIsAnimated, leaveGuild, listGuildEmojis, listGuildMembers, modifyCurrentUser, modifyGuild, modifyGuildEmoji, nicknameErrorToString, nicknameToString, noGuildModifications, teamIconUrl, triggerTypingIndicator, userAvatarUrl, usernameErrorToString, usernameToString
     )
 
 {-| Useful Discord links:
@@ -737,6 +737,21 @@ createGuildCategoryChannel authentication config =
         )
 
 
+
+--Modify Guild Channel Positions excluded
+
+
+{-| Returns a guild member for the specified user.
+-}
+getGuildMember : Authentication -> Id GuildId -> Id UserId -> Task String GuildMember
+getGuildMember authentication guildId userId =
+    httpGet
+        authentication
+        decodeGuildMember
+        [ "guilds", rawId guildId, "members", rawId userId ]
+        []
+
+
 {-| Returns a list of guild members that are members of the guild.
 
   - limit: Max number of members to return (1-1000)
@@ -745,7 +760,7 @@ createGuildCategoryChannel authentication config =
 -}
 listGuildMembers :
     Authentication
-    -> { guildId : Id GuildId, limit : Int, after : Maybe (Id UserId) }
+    -> { guildId : Id GuildId, limit : Int, after : OptionalData (Id UserId) }
     -> Task String (List GuildMember)
 listGuildMembers authentication { guildId, limit, after } =
     httpGet
@@ -754,10 +769,10 @@ listGuildMembers authentication { guildId, limit, after } =
         [ "guilds", rawId guildId, "members" ]
         (Url.Builder.int "limit" limit
             :: (case after of
-                    Just (Id after_) ->
+                    Included (Id after_) ->
                         [ Url.Builder.string "after" after_ ]
 
-                    Nothing ->
+                    Missing ->
                         []
                )
         )
