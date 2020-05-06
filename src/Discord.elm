@@ -141,10 +141,10 @@ getMessages authentication { channelId, limit, relativeTo } =
                         [ Url.Builder.string "around" messageId ]
 
                     Before (Id messageId) ->
-                        [ Url.Builder.string "around" messageId ]
+                        [ Url.Builder.string "before" messageId ]
 
                     After (Id messageId) ->
-                        [ Url.Builder.string "around" messageId ]
+                        [ Url.Builder.string "after" messageId ]
 
                     MostRecent ->
                         []
