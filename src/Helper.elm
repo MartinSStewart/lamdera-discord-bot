@@ -6,7 +6,6 @@ module Helper exposing
     )
 
 import Discord
-import Environment
 import Task exposing (Task)
 import Time
 

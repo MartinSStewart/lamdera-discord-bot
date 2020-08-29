@@ -1,7 +1,7 @@
 module Backend exposing (app, init, subscriptions, update, updateFromFrontend)
 
 import Discord exposing (MessagesRelativeTo(..), OptionalData(..))
-import Environment
+import Env
 import Helper
 import Lamdera exposing (ClientId, SessionId)
 import Task exposing (Task)
@@ -112,14 +112,14 @@ update msg model =
                     case model.lastMessageId of
                         Just lastMessageId_ ->
                             Discord.getMessages
-                                Environment.botToken
-                                { channelId = Environment.channelId, limit = 100, relativeTo = After lastMessageId_ }
+                                Env.botToken
+                                { channelId = Env.channelId, limit = 100, relativeTo = After lastMessageId_ }
                                 |> Helper.taskAttemptWithTime (GotMessages (Just lastMessageId_))
 
                         Nothing ->
                             Discord.getMessages
-                                Environment.botToken
-                                { channelId = Environment.channelId, limit = 1, relativeTo = MostRecent }
+                                Env.botToken
+                                { channelId = Env.channelId, limit = 1, relativeTo = MostRecent }
                                 |> Helper.taskAttemptWithTime (GotMessages Nothing)
 
                 getUsers =
@@ -128,13 +128,13 @@ update msg model =
                             Cmd.none
 
                         Nothing ->
-                            Discord.getChannel Environment.botToken Environment.channelId
+                            Discord.getChannel Env.botToken Env.channelId
                                 |> Task.andThen
                                     (\channel ->
                                         case channel.guildId of
                                             Included guildId ->
                                                 Discord.listGuildMembers
-                                                    Environment.botToken
+                                                    Env.botToken
                                                     { guildId = guildId, limit = 100, after = Missing }
 
                                             Missing ->
@@ -144,7 +144,7 @@ update msg model =
 
                 getBotUser =
                     if model.botUserId == Nothing then
-                        Discord.getCurrentUser Environment.botToken |> Task.attempt GotBotUser
+                        Discord.getCurrentUser Env.botToken |> Task.attempt GotBotUser
 
                     else
                         Cmd.none
@@ -204,5 +204,5 @@ update msg model =
 waveReaction : Discord.Id Discord.MessageId -> Task String ()
 waveReaction messageId =
     Discord.createReaction
-        Environment.botToken
-        { channelId = Environment.channelId, messageId = messageId, emoji = "👋" }
+        Env.botToken
+        { channelId = Env.channelId, messageId = messageId, emoji = "👋" }
